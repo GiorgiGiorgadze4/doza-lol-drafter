@@ -29,6 +29,8 @@
     for (let i = 1; i <= 5; i++) s += '<i class="' + (i <= n ? 'on' : '') + '" data-v="' + i + '">★</i>';
     return s + '</span>';
   }
+  // "/ 24★" for capped drafts, just "★" when there is no cap
+  const capTxt = (s) => (s.cap != null ? ' / ' + s.cap + '★' : '★');
   const roleTag = (r) => '<span class="role ' + r + '" title="' + ROLE_NAMES[r] + '">' + r + '</span>';
   const bestRole = (p) => ROLES.reduce((b, r) => (p.ratings[r] > p.ratings[b] ? r : b), ROLES[0]);
   const bestRating = (p) => Math.max(...ROLES.map((r) => p.ratings[r]));
@@ -44,39 +46,62 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   function fmtDate(ms) { return new Date(ms).toLocaleString(); }
-  function beep() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'triangle'; o.frequency.value = 880; g.gain.value = 0.06;
-      o.connect(g); g.connect(ctx.destination); o.start();
-      o.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
-      o.stop(ctx.currentTime + 0.25);
-    } catch (_) { /* no audio */ }
-  }
-
   /* =========================================================
-   * Data: player pool, setup, rooms, local drafts, history
+   * Data: player pool, setup, local drafts, history
+   *
+   * The roster lives in data/players.json, committed with the site.
+   *  - dev mode (npm run dev): edits are written straight back to that file
+   *  - static hosting: edits stay in this browser as an override on top of the published roster.
+   *    If the published file changes (a new commit), the override is dropped so everyone sees the new data.
    * ======================================================= */
-  const SAMPLE = [
-    ['Doza', 4, 3, 5, 2, 2], ['Kruger', 5, 3, 2, 1, 2], ['Vexa', 2, 2, 3, 5, 3], ['Mirko', 2, 5, 3, 2, 3],
-    ['Luka', 1, 2, 2, 3, 5], ['Ivy', 3, 4, 3, 3, 3], ['Brann', 4, 2, 1, 2, 4], ['Sela', 2, 3, 4, 4, 2],
-    ['Torvin', 3, 3, 2, 2, 4], ['Nika', 2, 4, 4, 1, 3], ['Ralph', 3, 1, 2, 4, 3], ['Jinxo', 1, 2, 3, 5, 2],
-    ['Grom', 5, 4, 2, 1, 1], ['Pela', 2, 2, 2, 3, 4],
-  ];
-  function samplePool() {
-    return SAMPLE.map(([name, ...v]) => ({ id: uid(), name, ratings: Object.fromEntries(ROLES.map((r, i) => [r, v[i]])) }));
+  let DEV = false;
+  let PUBLISHED = [];       // roster as served from data/players.json
+  let POOL = [];            // roster in use
+  let saveTimer = null;
+
+  const signature = (players) => JSON.stringify(players);
+  async function loadPool() {
+    try { DEV = (await fetch('__dev', { cache: 'no-store' })).ok; } catch (_) { DEV = false; }
+    try {
+      const r = await fetch('data/players.json', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      PUBLISHED = (await r.json()).map(E.normalizePlayer);
+    } catch (e) {
+      PUBLISHED = [];
+      toast('Could not load data/players.json (' + e.message + ')', 'err');
+    }
+    const ov = LS.get('pool.override', null);
+    if (!DEV && ov && ov.base === signature(PUBLISHED)) POOL = ov.players;
+    else {
+      if (ov && !DEV) toast('The published roster was updated, so your local rating edits were replaced', 'ok');
+      LS.set('pool.override', null);
+      POOL = PUBLISHED.slice();
+    }
+    const el = document.getElementById('server-status');
+    el.className = 'server-status ' + (DEV ? 'on' : 'off');
+    el.textContent = DEV ? 'Dev: edits save to repo' : 'Static';
+    el.title = DEV ? 'Rating edits are written to public/data/players.json' : 'Rating edits are kept in this browser only';
   }
-  function getPool() {
-    let p = LS.get('pool', null);
-    if (!p) { p = samplePool(); LS.set('pool', p); }
-    return p;
+  const getPool = () => JSON.parse(JSON.stringify(POOL));
+  function setPool(p) {
+    POOL = p;
+    if (!DEV) return LS.set('pool.override', { base: signature(PUBLISHED), players: p });
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        const r = await fetch('__dev/players', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(POOL) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+        PUBLISHED = POOL.map(E.normalizePlayer);
+      } catch (e) { toast('Could not save players.json: ' + e.message, 'err'); }
+    }, 300);
   }
-  const setPool = (p) => LS.set('pool', p);
+  const hasLocalEdits = () => !DEV && signature(POOL) !== signature(PUBLISHED);
+  const rosterJson = (players) => '[\n' + players.map((p) => '  ' + JSON.stringify(E.normalizePlayer(p))).join(',\n') + '\n]\n';
 
   function defaultSetup() {
     return {
-      selected: [], teamNames: { A: '', B: '' },
+      teamNames: { A: '', B: '' },
       captains: { A: { playerId: '', name: '' }, B: { playerId: '', name: '' } },
       settings: Object.assign({}, E.DEFAULT_SETTINGS),
     };
@@ -88,12 +113,6 @@
   }
   const setSetup = (s) => LS.set('setup', s);
 
-  const getRooms = () => LS.get('rooms', []);
-  function rememberRoom(r) {
-    const rooms = getRooms().filter((x) => !(x.id === r.id && x.key === r.key));
-    rooms.unshift(Object.assign({ at: Date.now() }, r));
-    LS.set('rooms', rooms.slice(0, 30));
-  }
   const getLocals = () => LS.get('local', {});
   const setLocals = (l) => LS.set('local', l);
   const getHistory = () => LS.get('history', []);
@@ -106,22 +125,6 @@
   }
 
   /* =========================================================
-   * Server detection
-   * ======================================================= */
-  let SERVER = null;
-  async function checkServer() {
-    const el = document.getElementById('server-status');
-    if (location.protocol === 'file:') SERVER = false;
-    else {
-      try { const r = await fetch('api/health', { cache: 'no-store' }); SERVER = r.ok && (await r.json()).ok === true; }
-      catch (_) { SERVER = false; }
-    }
-    el.className = 'server-status ' + (SERVER ? 'on' : 'off');
-    el.textContent = SERVER ? 'Online server' : 'Offline (local mode only)';
-    return SERVER;
-  }
-
-  /* =========================================================
    * Router
    * ======================================================= */
   let cleanup = null;
@@ -131,8 +134,7 @@
     document.onkeydown = null;
     document.title = 'Doza Drafter';
     const h = location.hash.slice(1) || '/';
-    const [path, query] = h.split('?');
-    const q = new URLSearchParams(query || '');
+    const path = h.split('?')[0];
     const parts = path.split('/').filter(Boolean);
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === (parts[0] || 'home')));
     window.scrollTo(0, 0);
@@ -142,7 +144,6 @@
       case 'setup': return viewSetup();
       case 'history': return parts[1] != null ? viewHistoryItem(+parts[1]) : viewHistory();
       case 'rules': return viewRules();
-      case 'room': return viewRoom(parts[1].toUpperCase(), q.get('k') || '');
       case 'local': return viewLocal(parts[1]);
       default: location.hash = '#/';
     }
@@ -152,9 +153,7 @@
    * Home
    * ======================================================= */
   function viewHome() {
-    const rooms = getRooms();
     const locals = Object.entries(getLocals()).sort((a, b) => b[1].state.createdAt - a[1].state.createdAt);
-    const seatLabel = { A: 'Captain A', B: 'Captain B', admin: 'Organizer', spectator: 'Spectator' };
     $app.innerHTML = `
       <section class="hero">
         <h1>Captain Draft</h1>
@@ -164,67 +163,32 @@
           <a class="btn big" href="#/players">Manage players</a>
         </div>
       </section>
-      <div class="grid2">
-        <div class="panel">
-          <h2>Join a room</h2>
-          <p class="muted">Paste the invite link you were sent, or enter a 6-letter room code to watch.</p>
-          <form class="row" id="join">
-            <input class="grow" name="code" placeholder="Invite link or room code" autocomplete="off">
-            <button class="btn primary">Join</button>
-          </form>
-          ${SERVER === false ? '<p class="alert warn small" style="margin-top:12px">No draft server found. Online rooms need the Node server (<span class="kbd">npm start</span>). Local hot-seat drafts still work.</p>' : ''}
-        </div>
-        <div class="panel">
-          <h2>Your drafts</h2>
-          <div class="list">
-            ${locals.map(([id, l]) => `
-              <div class="list-item">
-                <span class="badge gold">Local</span>
-                <div class="grow"><b>${esc(l.state.teamNames.A)}</b> vs <b>${esc(l.state.teamNames.B)}</b>
-                  <div class="small muted">${fmtDate(l.state.createdAt)} · ${l.state.phase}</div></div>
-                <a class="btn small" href="#/local/${id}">Open</a>
-                <button class="btn small danger" data-act="del-local" data-id="${id}">✕</button>
-              </div>`).join('')}
-            ${rooms.map((r, i) => `
-              <div class="list-item">
-                <span class="badge ${r.seat === 'A' ? 'blue' : r.seat === 'B' ? 'red' : ''}">${seatLabel[r.seat] || r.seat}</span>
-                <div class="grow"><span class="code">${esc(r.id)}</span> ${r.teamNames ? `· <b>${esc(r.teamNames.A)}</b> vs <b>${esc(r.teamNames.B)}</b>` : ''}
-                  <div class="small muted">${fmtDate(r.at)}</div></div>
-                <a class="btn small" href="#/room/${r.id}?k=${encodeURIComponent(r.key || '')}">Open</a>
-                <button class="btn small danger" data-act="del-room" data-i="${i}">✕</button>
-              </div>`).join('')}
-            ${!rooms.length && !locals.length ? '<p class="muted">No drafts yet. Start one from <a href="#/setup">New draft</a>.</p>' : ''}
-          </div>
+      <div class="panel">
+        <h2>Your drafts</h2>
+        <div class="list">
+          ${locals.map(([id, l]) => `
+            <div class="list-item">
+              <span class="badge gold">${l.state.phase === 'done' ? 'Done' : 'In progress'}</span>
+              <div class="grow"><b>${esc(l.state.teamNames.A)}</b> vs <b>${esc(l.state.teamNames.B)}</b>
+                <div class="small muted">${fmtDate(l.state.createdAt)} · ${l.state.phase}</div></div>
+              <a class="btn small" href="#/local/${id}">Open</a>
+              <button class="btn small danger" data-act="del-local" data-id="${id}">✕</button>
+            </div>`).join('') || '<p class="muted">No drafts yet. Start one from <a href="#/setup">New draft</a>.</p>'}
         </div>
       </div>
       <div class="panel">
         <h2>How it works</h2>
         <div class="grid3">
-          <div><h3>1 · Rate players</h3><p class="muted">On <a href="#/players">Players</a>, rate everyone 1–5 stars on each role. It's saved in this browser, and you can export or import it as JSON or CSV.</p></div>
-          <div><h3>2 · Pick 10 &amp; captains</h3><p class="muted">Choose the 10 players for tonight and two captains. The app sets a star cap per team from what the players could score at their best.</p></div>
-          <div><h3>3 · Draft</h3><p class="muted">Send each captain their link. They pick one by one in snake order and give each pick a role. Picks that would break the cap, or leave the draft unfinishable, are blocked.</p></div>
+          <div><h3>1 · Rate players</h3><p class="muted">On <a href="#/players">Players</a>, rate everyone 1–5 stars on each role. Run it locally with <span class="kbd">npm run dev</span> and your ratings are saved into the repo, so the next commit publishes them.</p></div>
+          <div><h3>2 · Captains</h3><p class="muted">On New draft, choose the two captains and the rules. Everyone on the roster can be drafted.</p></div>
+          <div><h3>3 · Draft</h3><p class="muted">Captains take turns on one screen (share it on stream or Discord). They pick one at a time, alternating (A B A B…), by dragging players from the roster straight onto a role slot of their team. Team totals update live, and picked players can be moved between roles at any time.</p></div>
         </div>
       </div>`;
 
-    qs('#join').onsubmit = (e) => {
-      e.preventDefault();
-      const v = e.target.code.value.trim();
-      if (!v) return;
-      const m = v.match(/#\/room\/([A-Za-z0-9]+)(\?k=([^&\s]+))?/);
-      if (m) location.hash = '#/room/' + m[1].toUpperCase() + (m[3] ? '?k=' + m[3] : '');
-      else if (/^[A-Za-z0-9]{4,8}$/.test(v)) {
-        const known = getRooms().find((r) => r.id === v.toUpperCase());
-        location.hash = '#/room/' + v.toUpperCase() + (known ? '?k=' + encodeURIComponent(known.key) : '');
-      } else toast('That is not a room code or invite link', 'err');
-    };
     $app.onclick = (e) => {
       const b = e.target.closest('[data-act]');
-      if (!b) return;
-      if (b.dataset.act === 'del-local' && confirm('Delete this local draft?')) {
+      if (b && b.dataset.act === 'del-local' && confirm('Delete this draft?')) {
         const l = getLocals(); delete l[b.dataset.id]; setLocals(l); viewHome();
-      }
-      if (b.dataset.act === 'del-room') {
-        const r = getRooms(); r.splice(+b.dataset.i, 1); LS.set('rooms', r); viewHome();
       }
     };
   }
@@ -243,6 +207,7 @@
           <input id="search" placeholder="Search…" class="right" style="width:200px">
         </div>
         <p class="muted small">Click the stars to rate each role from 1 (can't play it) to 5 (main or very strong). Changes save automatically.</p>
+        <div id="savenote"></div>
         <div class="table-wrap">
           <table class="tbl" id="ptable">
             <thead><tr>
@@ -268,15 +233,26 @@
         <div class="row" style="margin-top:10px">
           <button class="btn primary" data-act="import">Import from text</button>
           <label class="btn">Import file<input type="file" id="file" accept=".json,.csv,.txt" hidden></label>
-          <button class="btn" data-act="export">Export JSON</button>
+          <button class="btn" data-act="export">Download players.json</button>
           <button class="btn" data-act="export-csv">Copy as CSV</button>
           <span class="grow"></span>
-          <button class="btn" data-act="sample">Add sample players</button>
+          ${LS.get('pool', null) ? '<button class="btn" data-act="legacy" title="Ratings saved by an older version of the app in this browser">Import old browser ratings</button>' : ''}
           <button class="btn danger" data-act="clear">Delete all</button>
         </div>
       </div>`;
 
+    function drawNote() {
+      qs('#savenote').innerHTML = DEV
+        ? '<div class="alert ok small">Dev mode: edits are written to <span class="kbd">public/data/players.json</span>. Commit and push that file to publish the new ratings.</div>'
+        : hasLocalEdits()
+          ? `<div class="alert warn small row">
+              <span class="grow">These edits are saved in this browser only. To publish them, run <span class="kbd">npm run dev</span> locally, or download players.json and replace <span class="kbd">public/data/players.json</span> in the repo.</span>
+              <button class="btn small" data-act="revert">Discard my edits</button></div>`
+          : '<div class="alert small">Showing the published roster from <span class="kbd">data/players.json</span>. Run <span class="kbd">npm run dev</span> locally to edit it in the repo.</div>';
+    }
+
     function drawTable() {
+      drawNote();
       const pool = getPool();
       qs('#pcount').textContent = pool.length + ' players';
       let rows = pool.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
@@ -341,7 +317,7 @@
       if (!name || pool.some((p) => p.id !== pid && p.name.toLowerCase() === name.toLowerCase())) {
         toast('Name must be unique and not empty', 'err'); return drawTable();
       }
-      pool.find((p) => p.id === pid).name = name; setPool(pool);
+      pool.find((p) => p.id === pid).name = name; setPool(pool); drawNote();
     };
     $app.onclick = (e) => {
       const th = e.target.closest('th[data-sort]');
@@ -361,13 +337,14 @@
         if (confirm('Delete ' + p.name + '?')) { setPool(pool.filter((x) => x.id !== pid)); drawTable(); }
       } else if (act === 'import') importText(qs('#io').value);
       else if (act === 'export') {
-        const json = JSON.stringify(getPool().map(({ name, ratings }) => ({ name, ratings })), null, 2);
-        qs('#io').value = json; download('doza-players.json', json);
+        const json = rosterJson(getPool());
+        qs('#io').value = json; download('players.json', json);
       } else if (act === 'export-csv') {
         const csv = 'name,top,jng,mid,adc,sup\n' + getPool().map((p) => [p.name, ...ROLES.map((r) => p.ratings[r])].join(',')).join('\n');
         qs('#io').value = csv; copy(csv);
-      } else if (act === 'sample') { importText(JSON.stringify(samplePool())); }
-      else if (act === 'clear' && confirm('Delete ALL players from this browser?')) { setPool([]); drawTable(); }
+      } else if (act === 'legacy') { importText(JSON.stringify(LS.get('pool', []))); }
+      else if (act === 'revert' && confirm('Discard your edits and go back to the published roster?')) { POOL = PUBLISHED.slice(); LS.set('pool.override', null); drawTable(); }
+      else if (act === 'clear' && confirm('Delete ALL players?')) { setPool([]); drawTable(); }
     };
   }
 
@@ -377,7 +354,6 @@
   function viewSetup() {
     const setup = getSetup();
     const pool = getPool();
-    setup.selected = setup.selected.filter((id) => pool.some((p) => p.id === id));
     let search = '';
     const st = setup.settings;
 
@@ -385,73 +361,58 @@
       <div class="grid2" style="align-items:start">
         <div class="panel">
           <div class="row" style="margin-bottom:10px">
-            <h2 style="margin:0">Tonight's 10</h2>
-            <span class="badge" id="selcount"></span>
+            <h2 style="margin:0">Roster</h2>
+            <span class="badge" id="rcount"></span>
             <span class="grow"></span>
-            <input id="search" placeholder="Search…" style="width:140px">
-            <button class="btn small" data-act="random">Random</button>
-            <button class="btn small" data-act="clearsel">Clear</button>
+            <input id="search" placeholder="Search…" style="width:160px">
           </div>
-          <div class="pick-pool" id="selpool"></div>
+          <p class="small muted">Everyone on the roster can be drafted. After you start, captains take turns dragging players from this list straight into their team.</p>
+          <div class="pick-pool" id="roster"></div>
           <p class="small muted" style="margin-top:10px">Missing someone? Add them on <a href="#/players">Players</a>.</p>
         </div>
         <div>
           <div class="panel">
             <h2>Teams &amp; captains</h2>
-            <label class="check" style="margin-bottom:12px"><input type="checkbox" data-set="captainsArePlayers" ${st.captainsArePlayers ? 'checked' : ''}> Captains are among the 10 players</label>
+            <label class="check" style="margin-bottom:12px"><input type="checkbox" data-set="captainsArePlayers" ${st.captainsArePlayers ? 'checked' : ''}> Captains play too (they start on their main role)</label>
             <div class="grid2" id="caps"></div>
           </div>
           <div class="panel">
             <h2>Rules</h2>
             <div class="fields">
-              <label class="field">Cap tolerance
-                <input type="number" min="0" max="10" data-set="tolerance" value="${st.tolerance}">
-                <span class="hint">Stars allowed above an even split</span></label>
-              <label class="field">Fixed cap
-                <input type="number" min="0" max="25" data-set="capOverride" value="${st.capOverride}">
-                <span class="hint">0 = automatic</span></label>
               <label class="field">Min role rating
                 <select data-set="minRoleRating">${[1, 2, 3].map((v) => `<option value="${v}" ${st.minRoleRating == v ? 'selected' : ''}>${v}★${v === 1 ? ' (any role)' : ''}</option>`).join('')}</select>
                 <span class="hint">Can't place a player on a role rated lower</span></label>
               <label class="field">Pick timer (s)
                 <input type="number" min="0" max="600" data-set="pickTimer" value="${st.pickTimer}">
                 <span class="hint">0 = no timer. When time runs out, the best legal pick is made</span></label>
-              <label class="field">Pick order
-                <select data-set="pickOrder">
-                  <option value="snake" ${st.pickOrder === 'snake' ? 'selected' : ''}>Snake (A B B A A B…)</option>
-                  <option value="alternate" ${st.pickOrder === 'alternate' ? 'selected' : ''}>Alternate (A B A B…)</option>
-                </select></label>
-              <label class="field">Swap phase (s)
-                <input type="number" min="0" max="600" data-set="swapTimer" value="${st.swapTimer}">
-                <span class="hint">0 = no timer</span></label>
             </div>
-            <label class="check" style="margin-top:12px"><input type="checkbox" data-set="swapPhase" ${st.swapPhase ? 'checked' : ''}> Role-swap phase after the draft (captains can swap roles inside their own team; the cap still applies)</label>
+            <p class="small muted" style="margin:12px 0 0">After the last pick, the draft only counts once both captains lock in. Until then either can cancel and keep changing their team.</p>
           </div>
           <div class="panel" id="preview"></div>
         </div>
       </div>`;
 
     const save = () => setSetup(setup);
+    const capOf = (pid) => E.TEAMS.find((t) => st.captainsArePlayers && setup.captains[t].playerId === pid);
 
-    function drawSel() {
-      qs('#selcount').textContent = setup.selected.length + ' / 10';
-      qs('#selcount').className = 'badge ' + (setup.selected.length === 10 ? 'ok' : '');
-      const list = pool.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
-        .sort((a, b) => (setup.selected.includes(b.id) - setup.selected.includes(a.id)) || a.name.localeCompare(b.name));
-      qs('#selpool').innerHTML = list.map((p) => `
-        <div class="pp ${setup.selected.includes(p.id) ? 'sel' : ''}" data-pid="${p.id}">
-          <input type="checkbox" ${setup.selected.includes(p.id) ? 'checked' : ''} tabindex="-1">
+    function drawRoster() {
+      qs('#rcount').textContent = pool.length + ' players';
+      const list = pool.filter((p) => p.name.toLowerCase().includes(search.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
+      qs('#roster').innerHTML = list.map((p) => {
+        const t = capOf(p.id);
+        return `<div class="pp idle ${t ? 'sel' : ''}">
           <div class="grow">
-            <div class="nm">${esc(p.name)}</div>
+            <div class="nm">${esc(p.name)}${t ? '<span class="cap">♛</span>' : ''}</div>
             <div class="mini">${ROLES.map((r) => `<span>${r} <b>${p.ratings[r]}</b></span>`).join('')}</div>
           </div>
-          ${roleTag(bestRole(p))}
-        </div>`).join('') || '<p class="muted">Your player pool is empty. <a href="#/players">Add players</a>.</p>';
+          ${t ? `<span class="badge gold">Captain ${t}</span>` : roleTag(bestRole(p))}
+        </div>`;
+      }).join('') || '<p class="muted">Your roster is empty. <a href="#/players">Add players</a>.</p>';
     }
 
     function drawCaps() {
-      const sel = setup.selected.map((id) => pool.find((p) => p.id === id));
-      for (const t of E.TEAMS) if (setup.captains[t].playerId && !setup.selected.includes(setup.captains[t].playerId)) setup.captains[t].playerId = '';
+      for (const t of E.TEAMS) if (setup.captains[t].playerId && !pool.some((p) => p.id === setup.captains[t].playerId)) setup.captains[t].playerId = '';
+      const sorted = pool.slice().sort((a, b) => a.name.localeCompare(b.name));
       qs('#caps').innerHTML = E.TEAMS.map((t) => `
         <div>
           <label class="field">Team ${t} name
@@ -460,7 +421,7 @@
           <label class="field" style="margin-top:8px">Captain ${t}
             <select data-cap="${t}">
               <option value="">— choose a player —</option>
-              ${sel.map((p) => `<option value="${p.id}" ${setup.captains[t].playerId === p.id ? 'selected' : ''} ${setup.captains[E.other(t)].playerId === p.id ? 'disabled' : ''}>${esc(p.name)}</option>`).join('')}
+              ${sorted.map((p) => `<option value="${p.id}" ${setup.captains[t].playerId === p.id ? 'selected' : ''} ${setup.captains[E.other(t)].playerId === p.id ? 'disabled' : ''}>${esc(p.name)}</option>`).join('')}
             </select></label>` : `
           <label class="field" style="margin-top:8px">Captain ${t} name
             <input data-capname="${t}" value="${esc(setup.captains[t].name)}" placeholder="Captain ${t}" maxlength="32"></label>`}
@@ -469,46 +430,41 @@
 
     function buildOpts() {
       return {
-        players: setup.selected.map((id) => pool.find((p) => p.id === id)),
+        players: pool,
         captains: {
           A: { playerId: st.captainsArePlayers ? setup.captains.A.playerId : null, name: st.captainsArePlayers ? '' : setup.captains.A.name },
           B: { playerId: st.captainsArePlayers ? setup.captains.B.playerId : null, name: st.captainsArePlayers ? '' : setup.captains.B.name },
         },
         teamNames: { A: setup.teamNames.A, B: setup.teamNames.B },
-        settings: st,
+        settings: Object.assign({}, st, { noCap: true, pickOrder: 'alternate' }), // one pick each, A B A B…
       };
     }
 
     function drawPreview() {
       const el = qs('#preview');
       let err = null, s = null;
-      if (setup.selected.length !== 10) err = 'Select exactly 10 players (' + setup.selected.length + ' selected).';
-      else if (st.captainsArePlayers && (!setup.captains.A.playerId || !setup.captains.B.playerId)) err = 'Choose both captains (or untick "Captains are among the 10 players").';
+      if (pool.length < 10) err = 'The roster needs at least 10 players (' + pool.length + ' now).';
+      else if (st.captainsArePlayers && (!setup.captains.A.playerId || !setup.captains.B.playerId)) err = 'Choose both captains (or untick "Captains play too").';
       else { try { s = E.createDraft(Object.assign(buildOpts(), { firstPick: 'A' })); } catch (e) { err = e.message; } }
-      const avg = s ? (s.best / 10).toFixed(1) : '–';
       el.innerHTML = `
-        <h2>Preview</h2>
+        <h2>Ready?</h2>
         ${err ? `<div class="alert err">${esc(err)}</div>` : `
         <div class="stat-grid">
-          <div class="stat"><div class="v">${s.best}</div><div class="k">Best possible total</div></div>
-          <div class="stat"><div class="v">${s.cap}★</div><div class="k">Cap per team</div></div>
-          <div class="stat"><div class="v">${avg}</div><div class="k">Avg ★ per player</div></div>
+          <div class="stat"><div class="v">${pool.length}</div><div class="k">On the roster</div></div>
           <div class="stat"><div class="v">${s.order.length}</div><div class="k">Picks</div></div>
+          <div class="stat"><div class="v">${pool.length - 10}</div><div class="k">Sit out</div></div>
         </div>
-        ${s.autoCapRaised ? `<div class="alert warn small" style="margin-top:10px">The cap was raised by ${s.autoCapRaised} so a full draft is still possible.</div>` : ''}
         <p class="small muted" style="margin-top:12px">Pick order (the first pick is a coin flip, and the team that picks second gets blue side):</p>
         <div class="order-strip">${s.order.map((t) => `<span class="${t}">${t}</span>`).join('')}</div>
-        <div class="alert ok small" style="margin-top:12px">Ready. Each team can bring at most <b>${s.cap}★</b>; an even split of the best total would be ${s.best % 2 ? Math.floor(s.best / 2) + '–' + Math.ceil(s.best / 2) : s.best / 2}★ each.</div>`}
+        <div class="alert ok small" style="margin-top:12px">No star cap: team totals and the win estimate update live as players are placed.</div>`}
         <div class="row" style="margin-top:14px">
-          <button class="btn gold" data-act="online" ${err || !SERVER ? 'disabled' : ''}>Create online room</button>
-          <button class="btn primary" data-act="local" ${err ? 'disabled' : ''}>Local hot-seat draft</button>
-        </div>
-        ${SERVER ? '' : '<p class="small muted" style="margin-top:8px">Online rooms need the Node server to be running.</p>'}`;
+          <button class="btn gold" data-act="local" ${err ? 'disabled' : ''}>Start draft</button>
+        </div>`;
     }
 
-    drawSel(); drawCaps(); drawPreview();
+    drawRoster(); drawCaps(); drawPreview();
 
-    qs('#search').oninput = (e) => { search = e.target.value; drawSel(); };
+    qs('#search').oninput = (e) => { search = e.target.value; drawRoster(); };
     $app.oninput = (e) => {
       const t = e.target;
       if (t.dataset.team) { setup.teamNames[t.dataset.team] = t.value; save(); }
@@ -517,68 +473,36 @@
     };
     $app.onchange = (e) => {
       const t = e.target;
-      if (t.dataset.cap) { setup.captains[t.dataset.cap].playerId = t.value; save(); drawCaps(); drawPreview(); }
+      if (t.dataset.cap) { setup.captains[t.dataset.cap].playerId = t.value; save(); drawCaps(); drawRoster(); drawPreview(); }
       else if (t.dataset.set) {
-        st[t.dataset.set] = t.type === 'checkbox' ? t.checked : t.tagName === 'SELECT' && t.dataset.set !== 'pickOrder' ? +t.value : t.type === 'number' ? +t.value : t.value;
-        save(); if (t.dataset.set === 'captainsArePlayers') drawCaps(); drawPreview();
+        st[t.dataset.set] = t.type === 'checkbox' ? t.checked : t.tagName === 'SELECT' ? +t.value : t.type === 'number' ? +t.value : t.value;
+        save(); if (t.dataset.set === 'captainsArePlayers') { drawCaps(); drawRoster(); } drawPreview();
       }
     };
-    $app.onclick = async (e) => {
-      const card = e.target.closest('.pp');
-      if (card) {
-        const id = card.dataset.pid;
-        if (setup.selected.includes(id)) setup.selected = setup.selected.filter((x) => x !== id);
-        else if (setup.selected.length >= 10) return toast('Already 10 selected', 'err');
-        else setup.selected.push(id);
-        save(); drawSel(); drawCaps(); drawPreview(); return;
-      }
+    $app.onclick = (e) => {
       const b = e.target.closest('[data-act]');
-      if (!b) return;
-      if (b.dataset.act === 'random') {
-        const ids = pool.map((p) => p.id).sort(() => Math.random() - 0.5).slice(0, 10);
-        setup.selected = ids; save(); drawSel(); drawCaps(); drawPreview();
-      } else if (b.dataset.act === 'clearsel') { setup.selected = []; save(); drawSel(); drawCaps(); drawPreview(); }
-      else if (b.dataset.act === 'local') {
-        let s;
-        try { s = E.createDraft(buildOpts()); } catch (err) { return toast(err.message, 'err'); }
-        const id = 'L' + uid();
-        s.id = id;
-        const l = getLocals(); l[id] = { state: s, history: [] }; setLocals(l);
-        location.hash = '#/local/' + id;
-      } else if (b.dataset.act === 'online') {
-        b.disabled = true;
-        try {
-          const r = await fetch('api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildOpts()) });
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || 'Could not create room');
-          const tn = { A: setup.teamNames.A || 'Team A', B: setup.teamNames.B || 'Team B' };
-          LS.set('keys.' + d.roomId, d.keys);
-          rememberRoom({ id: d.roomId, key: d.keys.admin, seat: 'admin', teamNames: tn });
-          location.hash = '#/room/' + d.roomId + '?k=' + encodeURIComponent(d.keys.admin);
-        } catch (err) { toast(err.message, 'err'); b.disabled = false; }
-      }
+      if (!b || b.dataset.act !== 'local') return;
+      let s;
+      try { s = E.createDraft(buildOpts()); } catch (err) { return toast(err.message, 'err'); }
+      const id = 'L' + uid();
+      s.id = id;
+      const l = getLocals(); l[id] = { state: s, history: [] }; setLocals(l);
+      location.hash = '#/local/' + id;
     };
   }
 
   /* =========================================================
-   * Draft HUD (shared by online, local and history views)
+   * Draft HUD (shared by live drafts and the history viewer)
    * ======================================================= */
-  const roomLink = (id, key) => location.origin + location.pathname + '#/room/' + id + (key ? '?k=' + encodeURIComponent(key) : '');
-
   function createDraftView(ctx) {
-    // ctx: { mode: 'online'|'local'|'view', seat, act(action, team), undo(), now(), keys?, onDone(state) }
-    const ui = { sel: null, role: null, filter: 'ALL', swapSel: null, actAs: '', lastSeq: null, presence: null, canUndo: false, wasMyTurn: false };
+    // ctx: { mode: 'local'|'view', act(action, team), undo(), now(), onTick(), onDone(state) }
+    // ui.sel / ui.swapSel: chosen by tapping (tap a slot next to place it); ui.drag: what is being dragged right now
+    const ui = { sel: null, swapSel: null, drag: null, lastSeq: null, canUndo: false };
     let state = null;
     let ticker = null;
 
-    function myTeams() {
-      if (ctx.mode === 'local') return ['A', 'B'];
-      if (ctx.mode === 'view') return [];
-      if (ctx.seat === 'A' || ctx.seat === 'B') return [ctx.seat];
-      if (ctx.seat === 'admin' && ui.actAs) return [ui.actAs];
-      return [];
-    }
-    const isAdmin = () => ctx.mode === 'local' || ctx.seat === 'admin';
+    const myTeams = () => (ctx.mode === 'local' ? ['A', 'B'] : []);
+    const isAdmin = () => ctx.mode === 'local';
     const act = (action, team) => ctx.act(action, team);
 
     function update(newState, extra) {
@@ -605,7 +529,7 @@
         case 'lobby': return { label: 'Lobby', who: 'Waiting for both captains' };
         case 'captains': return { label: 'Captain roles', who: 'Captains pick their own roles' };
         case 'draft': { const t = E.currentTeam(s); return { label: `Pick ${s.pickIndex + 1} of ${N}`, who: esc(s.teamNames[t]) + ' is picking', team: t }; }
-        case 'swap': return { label: 'Swap phase', who: 'Swap roles inside your team' };
+        case 'swap': return { label: 'Lock in', who: s.ready.A || s.ready.B ? 'Waiting for the other captain to lock in' : 'Both captains lock in to finish' };
         case 'done': return { label: 'Draft complete', who: 'GLHF' };
       }
       return { label: s.phase, who: '' };
@@ -613,161 +537,220 @@
 
     function banner(t) {
       const s = state, side = s.sides[t];
-      const used = E.teamStars(s, t), pct = Math.min(100, (used / s.cap) * 100);
-      const online = ctx.mode === 'online' && ui.presence;
+      const used = E.teamStars(s, t), pct = s.cap ? Math.min(100, (used / s.cap) * 100) : 0;
       const capName = s.captains[t].name;
       const status = s.phase === 'lobby' ? (s.ready[t] ? ' · <b style="color:var(--ok)">READY</b>' : '')
-        : s.phase === 'swap' ? (s.ready[t] ? ' · <b style="color:var(--ok)">READY</b>' : ' · swapping…') : '';
+        : s.phase === 'swap' ? (s.ready[t] ? ' · <b style="color:var(--ok)">LOCKED IN</b>' : ' · not locked in') : '';
       return `
         <div class="team-banner ${side} ${isTurn(t) && s.phase !== 'done' ? 'turn' : ''}">
           <div class="tn">${esc(s.teamNames[t])}</div>
-          <div class="sub">${online ? `<span class="dot ${ui.presence[t] ? 'on' : ''}" title="${ui.presence[t] ? 'connected' : 'offline'}"></span>` : ''}Captain ${esc(capName)} · <span class="badge ${side}">${side} side</span>${s.firstPick === t ? ' · first pick' : ''}${status}</div>
+          <div class="sub">Captain ${esc(capName)} · <span class="badge ${side}">${side} side</span>${s.firstPick === t ? ' · first pick' : ''}${status}</div>
           <div class="budget">
-            <div class="bar"><div class="fill ${used >= s.cap ? 'full' : ''}" style="width:${pct}%"></div></div>
-            <div class="lbl"><span><b>${used}</b> / ${s.cap}★ used</span><span>${s.cap - used}★ left · ${E.openRoles(s, t).length} open</span></div>
+            ${s.cap != null ? `<div class="bar"><div class="fill ${used >= s.cap ? 'full' : ''}" style="width:${pct}%"></div></div>
+            <div class="lbl"><span><b>${used}</b> / ${s.cap}★ used</span><span>${s.cap - used}★ left · ${E.openRoles(s, t).length} open</span></div>`
+              : `<div class="lbl"><span><b>${used}</b>★ total</span><span>${E.openRoles(s, t).length} open</span></div>`}
           </div>
         </div>`;
     }
 
-    function slotsHtml(t) {
-      const s = state;
-      const last = s.log[s.log.length - 1];
-      const fresh = ui.lastSeq != null && s.seq !== ui.lastSeq && last && last.team === t && (last.kind === 'pick' || last.kind === 'captain') ? last.role : null;
-      const canSwap = s.phase === 'swap' && myTeams().includes(t) && !s.ready[t];
-      return `<div class="slots ${s.sides[t]}-side">` + ROLES.map((r) => {
-        const pid = s.teams[t].slots[r];
-        const p = pid && E.playerById(s, pid);
-        if (!p) {
-          const pend = s.captains[t].playerId && !s.locked[t] ? `<span class="small">reserved for ${esc(E.playerById(s, s.captains[t].playerId).name)}?</span>` : '<span class="small">empty</span>';
-          return `<div class="slot empty">${roleTag(r)}${pend}<span></span></div>`;
-        }
-        let alt = '';
-        let cls = '';
-        if (canSwap) {
-          cls = ' swappable';
-          if (ui.swapSel && ui.swapSel.team === t) {
-            if (ui.swapSel.role === r) cls += ' swap-sel';
-            else {
-              const c = E.checkSwap(s, t, ui.swapSel.role, r);
-              alt = `<div class="alt">${c.ok ? `swap → ${c.delta >= 0 ? '+' : ''}${c.delta}★` : esc(c.reason)}</div>`;
-            }
-          }
-        }
-        const isCap = s.captains[t].playerId === pid;
-        return `<div class="slot filled${cls}${fresh === r ? ' new' : ''}" data-team="${t}" data-role="${r}">
-          ${roleTag(r)}
-          <div><div class="pn">${esc(p.name)}${isCap ? '<span class="cap">♛ CAPT</span>' : ''}</div>${stars(p.ratings[r])}${alt}</div>
-          <div class="sv">${p.ratings[r]}</div>
-        </div>`;
-      }).join('') + '</div>';
+    /* ---------- placing: a player onto an empty slot, or a slot onto another slot (swap) ---------- */
+
+    // What is being placed right now: a dragged card, or the player / slot selected by tapping.
+    function activeSource() {
+      if (ui.drag) return ui.drag;
+      if (ui.sel) return { kind: 'player', pid: ui.sel };
+      if (ui.swapSel) return { kind: 'slot', team: ui.swapSel.team, role: ui.swapSel.role };
+      return null;
     }
 
-    function pcard(p, legalRoles, clickable, turnTeam) {
-      const open = turnTeam ? E.openRoles(state, turnTeam) : [];
-      const has = legalRoles && legalRoles.size > 0;
-      return `<div class="pcard ${ui.sel === p.id ? 'sel' : ''} ${clickable ? '' : 'idle'} ${turnTeam && !has ? 'nolegal' : ''}" data-pid="${p.id}">
-        <div class="nm"><span>${esc(p.name)}</span>${roleTag(bestRole(p))}</div>
-        <div class="rr">${ROLES.map((r) => `<span class="rl ${open.includes(r) ? 'open' : ''}">${r}</span>
-          <span class="${legalRoles && legalRoles.has(r) ? 'hl' : ''}">${stars(p.ratings[r])}</span>`).join('')}</div>
-      </div>`;
+    // null = not a target for this source; otherwise { ok, reason?, delta } where delta is the team's star change.
+    function dropCheck(src, t, r) {
+      const s = state;
+      if (!myTeams().includes(t)) return null;
+      if (src.kind === 'slot') {
+        if ((s.phase !== 'swap' && s.phase !== 'draft') || t !== src.team || r === src.role) return null;
+        return E.checkSwap(s, t, src.role, r);
+      }
+      // roster player onto a filled slot: bench swap (any time, no pick used)
+      if (s.teams[t].slots[r]) return E.checkBench(s, t, src.pid, r);
+      const p = E.playerById(s, src.pid);
+      let c;
+      if (s.phase === 'captains') {
+        if (E.captainTeamOf(s, src.pid) !== t) return null;
+        c = E.checkCaptainLock(s, t, r);
+      } else if (s.phase === 'draft') {
+        if (E.currentTeam(s) !== t) return null;
+        c = E.checkPick(s, t, src.pid, r);
+      } else return null;
+      return Object.assign({ delta: p.ratings[r] }, c);
+    }
+
+    function place(src, t, r) {
+      const c = dropCheck(src, t, r);
+      if (!c) return draw();
+      if (!c.ok) { toast(c.reason, 'err'); return draw(); }
+      ui.sel = null; ui.swapSel = null; ui.drag = null;
+      if (src.kind === 'slot') return act({ type: 'swap', r1: src.role, r2: r }, t);
+      if (state.teams[t].slots[r]) return act({ type: 'bench', playerId: src.pid, role: r }, t);
+      if (state.phase === 'captains') return act({ type: 'lockCaptain', role: r }, t);
+      act({ type: 'pick', playerId: src.pid, role: r }, t);
+    }
+
+    // A placed player dropped back on the roster list: the slot opens and the team gets that pick back.
+    function release(src) {
+      ui.sel = null; ui.swapSel = null; ui.drag = null;
+      const c = E.checkRelease(state, src.team, src.role);
+      if (!c.ok) { toast(c.reason, 'err'); return draw(); }
+      act({ type: 'release', role: src.role }, src.team);
+    }
+
+    /* ---------- the 5v5 board ---------- */
+
+    function slotHtml(t, r, src) {
+      const s = state;
+      const pid = s.teams[t].slots[r];
+      const p = pid && E.playerById(s, pid);
+      const c = src ? dropCheck(src, t, r) : null;
+      const last = s.log[s.log.length - 1];
+      const fresh = ui.lastSeq != null && s.seq !== ui.lastSeq && last && last.team === t && last.role === r && (last.kind === 'pick' || last.kind === 'captain');
+      const canSwap = !!p && canMove(t);
+      let cls = 'slot ' + s.sides[t] + (p ? ' filled' : ' empty');
+      if (fresh) cls += ' new';
+      if (canSwap) cls += ' swappable';
+      if (src && src.kind === 'slot' && src.team === t && src.role === r) cls += ' swap-sel';
+      if (c) cls += c.ok ? ' drop-ok' : ' drop-bad';
+      else if (!p && s.phase === 'draft' && E.currentTeam(s) === t) cls += ' turn';
+      const attrs = `data-team="${t}" data-role="${r}"${c && c.ok ? ` data-delta="${c.delta}"` : ''}${canSwap ? ' data-drag="slot"' : ''}`;
+      const total = E.teamStars(s, t) + (c && c.ok ? c.delta : 0);
+      const hint = !c ? '' : c.ok
+        ? `<div class="hint ok">${src.kind === 'slot' ? (p ? 'swap · ' : 'move · ') : p ? 'swap in · ' : ''}${c.delta >= 0 ? '+' : ''}${c.delta}★ → ${total}${capTxt(s)}</div>`
+        : `<div class="hint bad">${esc(c.reason)}</div>`;
+      if (!p) {
+        let txt = 'Empty';
+        if (c && c.ok) txt = 'Drop here';
+        else if (s.phase === 'captains' && s.captains[t].playerId && !s.locked[t]) txt = 'Captain ' + E.playerById(s, s.captains[t].playerId).name + ' picks first';
+        else if (s.phase === 'draft' && E.currentTeam(s) === t && myTeams().includes(t)) txt = 'Drop a player here';
+        return `<div class="${cls}" ${attrs}><div class="who"><span class="ph">${esc(txt)}</span>${hint}</div></div>`;
+      }
+      const isCap = s.captains[t].playerId === pid;
+      return `<div class="${cls}" ${attrs}>
+          <div class="who"><div class="pn">${esc(p.name)}${isCap ? '<span class="cap">♛</span>' : ''}</div>${stars(p.ratings[r])}${hint}</div>
+          <div class="sv">${p.ratings[r]}</div>
+        </div>`;
+    }
+
+    function boardHtml() {
+      const s = state;
+      const L = s.sides.A === 'blue' ? 'A' : 'B', R = E.other(L);
+      const src = activeSource();
+      const head = (t) => `<div class="bh ${s.sides[t]} ${isTurn(t) && s.phase !== 'done' ? 'turn' : ''}">
+          <div class="tn">${esc(s.teamNames[t])}</div>
+          <div class="tot"><b data-total="${t}">${E.teamStars(s, t)}</b>${capTxt(s)}</div>
+        </div>`;
+      return `<div class="board${src ? ' placing' : ''}">
+          ${head(L)}<div class="bh mid">VS</div>${head(R)}
+          ${ROLES.map((r) => `${slotHtml(L, r, src)}<div class="brole">${roleTag(r)}</div>${slotHtml(R, r, src)}`).join('')}
+        </div>`;
+    }
+
+    // Placed players can be dragged to another role of their own team during the draft and the swap phase.
+    const canMove = (t) => myTeams().includes(t) && (state.phase === 'draft' || (state.phase === 'swap' && !state.ready[t]));
+
+    // All 10 players in one list, same cards as the setup page. Unpicked players are dragged onto the board on their
+    // team's turn; picked ones stay listed (with team + role) and can be dragged to another role of their team any time.
+    function playerListHtml() {
+      const s = state;
+      const src = activeSource();
+      const turn = E.currentTeam(s);
+      const legalIds = turn && myTeams().includes(turn) ? new Set(E.legalPicks(s, turn).map((l) => l.playerId)) : null;
+      const placed = {};
+      for (const t of E.TEAMS) for (const r of ROLES) if (s.teams[t].slots[r]) placed[s.teams[t].slots[r]] = { t, r };
+      const list = s.players.slice().sort((a, b) => (!!placed[a.id] - !!placed[b.id]) || a.name.localeCompare(b.name));
+      const rel = src && src.kind === 'slot' && E.checkRelease(s, src.team, src.role);
+      const zone = rel && rel.ok ? ` release-zone drop-ok" data-release="1" data-team="${src.team}" data-delta="${rel.delta}` : '';
+      return `<div class="pick-pool draft-list${zone}">${list.map((p) => {
+        const at = placed[p.id];
+        const capT = E.captainTeamOf(s, p.id);
+        let cls = 'pp', drag = '';
+        if (at) {
+          cls += ' placed ' + s.sides[at.t];
+          if (canMove(at.t)) drag = ` data-drag="slot" data-team="${at.t}" data-role="${at.r}"`;
+          if (src && src.kind === 'slot' && src.team === at.t && src.role === at.r) cls += ' sel';
+        } else {
+          const can = s.phase === 'captains' ? !!capT && myTeams().includes(capT) : (s.phase === 'draft' || s.phase === 'swap') && !capT && myTeams().length > 0;
+          if (can) drag = ' data-drag="player"';
+          if (s.phase === 'draft' && legalIds && !legalIds.has(p.id)) cls += ' nolegal';
+          if (src && src.kind === 'player' && src.pid === p.id) cls += ' sel';
+        }
+        if (!drag) cls += ' idle';
+        const tag = at
+          ? `<span class="where"><span class="badge ${s.sides[at.t]}">${esc(s.teamNames[at.t])}</span>${roleTag(at.r)}</span>`
+          : roleTag(bestRole(p));
+        return `<div class="${cls}" data-pid="${p.id}"${drag}>
+            <div class="grow">
+              <div class="nm">${esc(p.name)}${capT ? '<span class="cap">♛</span>' : ''}</div>
+              <div class="mini">${ROLES.map((r) => `<span>${r} <b>${p.ratings[r]}</b></span>`).join('')}</div>
+            </div>
+            ${tag}
+          </div>`;
+      }).join('')}</div>`;
     }
 
     function centerDraft() {
       const s = state;
       const turn = E.currentTeam(s);
       const mine = myTeams().includes(turn);
-      const legal = E.legalPicks(s, turn);
-      const legalBy = new Map();
-      for (const l of legal) { if (!legalBy.has(l.playerId)) legalBy.set(l.playerId, new Set()); legalBy.get(l.playerId).add(l.role); }
-      let list = E.pool(s);
-      if (ui.sel && !list.some((p) => p.id === ui.sel)) ui.sel = null;
-      const f = ui.filter;
-      list = list.slice().sort((a, b) => f === 'ALL' ? (bestRating(b) - bestRating(a) || sumRating(b) - sumRating(a)) : (b.ratings[f] - a.ratings[f] || bestRating(b) - bestRating(a)));
-      let lock = '';
-      if (mine) {
-        const p = ui.sel && E.playerById(s, ui.sel);
-        if (p) {
-          const opts = E.openRoles(s, turn).map((r) => {
-            const c = E.checkPick(s, turn, p.id, r);
-            return `<button class="role-btn ${ui.role === r ? 'on' : ''}" data-pickrole="${r}" ${c.ok ? '' : 'disabled'} title="${c.ok ? '' : esc(c.reason)}">
-              ${roleTag(r)} ${stars(p.ratings[r])}
-              ${c.ok ? `<span class="small muted">→ ${E.teamStars(s, turn) + p.ratings[r]}/${s.cap}★</span>` : `<span class="why">${esc(c.reason)}</span>`}
-            </button>`;
-          }).join('');
-          const ok = ui.role && E.checkPick(s, turn, p.id, ui.role).ok;
-          lock = `<div class="lockbar">
-            <div><div class="small muted">Selected</div><div style="font-weight:700;font-size:16px">${esc(p.name)}</div></div>
-            <div class="role-btns grow">${opts}</div>
-            <button class="btn gold big" data-act="lockin" ${ok ? '' : 'disabled'}>Lock in</button>
-          </div>`;
-        } else {
-          lock = `<div class="lockbar"><b style="color:var(--gold2)">Your pick!</b><span class="muted">Choose a player, then a role. Highlighted stars mark legal role options.</span></div>`;
-        }
-      } else {
-        lock = `<div class="lockbar"><span class="muted">Waiting for <b>${esc(s.teamNames[turn])}</b> to pick…</span></div>`;
-      }
+      const tip = mine
+        ? `<b>${esc(s.teamNames[turn])}</b> is picking: drag a player onto an empty slot on their side (or tap the player, then the slot). Green slots are legal and show the new team total.
+           Any time, either team can drag their players to another role, drop a roster player on one of their players to swap them in, or drag a player back here to the roster (that pick is given back). None of this uses a pick.`
+        : `Waiting for <b>${esc(s.teamNames[turn])}</b> to pick…`;
+      const relSel = ui.swapSel && E.checkRelease(s, ui.swapSel.team, ui.swapSel.role).ok;
       return `
         <div class="center-head">
-          <h2 style="margin:0">Available players</h2><span class="badge">${E.pool(s).length}</span>
-          <div class="tabs right">${['ALL', ...ROLES].map((r) => `<button class="${ui.filter === r ? 'on' : ''}" data-filter="${r}">${r === 'ALL' ? 'Best' : r}</button>`).join('')}</div>
+          <h2 style="margin:0">Players</h2><span class="badge">${E.pool(s).length} left</span>
+          ${relSel ? `<button class="btn small right" data-act="release">↩ Send ${esc(E.playerById(s, s.teams[ui.swapSel.team].slots[ui.swapSel.role]).name)} back to the roster</button>` : ''}
         </div>
-        <div class="pool">${list.map((p) => pcard(p, legalBy.get(p.id), mine, turn)).join('')}</div>
-        ${lock}`;
+        <p class="tip">${tip}</p>
+        ${playerListHtml()}`;
     }
 
     function centerCaptains() {
-      const s = state;
-      return `<h2>Captains lock their roles</h2>
-        <p class="muted">Captains are players too. Each captain picks their own role first; it counts toward their team's cap.</p>
-        <div class="grid2">${E.TEAMS.map((t) => {
-          const pid = s.captains[t].playerId;
-          if (!pid) return `<div class="lobby-cap"><div class="tn">${esc(s.teamNames[t])}</div><p class="muted">Captain isn't playing.</p></div>`;
-          const p = E.playerById(s, pid);
-          const lockedRole = ROLES.find((r) => s.teams[t].slots[r] === pid);
-          const can = myTeams().includes(t) && !s.locked[t];
-          return `<div class="lobby-cap ${s.locked[t] ? 'ready' : ''}">
-            <div class="tn">${esc(p.name)}</div><div class="small muted">${esc(s.teamNames[t])}</div>
-            <div style="margin-top:12px">${lockedRole ? `Locked: ${roleTag(lockedRole)} ${stars(p.ratings[lockedRole])}`
-              : can ? `<div class="role-btns" style="justify-content:center">${ROLES.map((r) => {
-                const c = E.checkCaptainLock(s, t, r);
-                return `<button class="role-btn" data-caplock="${r}" data-team="${t}" ${c.ok ? '' : 'disabled'} title="${esc(c.reason || '')}">${roleTag(r)}${stars(p.ratings[r])}${c.ok ? '' : `<span class="why">${esc(c.reason)}</span>`}</button>`;
-              }).join('')}</div>`
-              : '<span class="muted">Choosing…</span>'}</div>
-          </div>`;
-        }).join('')}</div>`;
+      return `<div class="center-head"><h2 style="margin:0">Players</h2></div>
+        <p class="tip">Captains go first: drag each captain (♛) onto a role on their own team (or tap the captain, then the slot). It counts toward the team's cap.</p>
+        ${playerListHtml()}`;
     }
 
     function centerLobby() {
       const s = state;
-      const mine = myTeams();
       return `<h2>Lobby</h2>
-        <p class="muted">The draft starts when both captains click Ready${isAdmin() ? ', or when you force-start it' : ''}. The first pick was decided by coin flip: <b>${esc(s.teamNames[s.firstPick])}</b>.</p>
+        <p class="muted">The first pick was decided by coin flip: <b>${esc(s.teamNames[s.firstPick])}</b>. Start when both captains are at the screen.</p>
         <div class="grid2">${E.TEAMS.map((t) => `
           <div class="lobby-cap ${s.ready[t] ? 'ready' : ''}">
             <div class="tn">${esc(s.teamNames[t])}</div>
-            <div class="small muted">Captain ${esc(s.captains[t].name)}${ctx.mode === 'online' && ui.presence ? (ui.presence[t] ? ' · connected' : ' · not connected') : ''}</div>
-            <div style="margin-top:12px">${ctx.mode === 'local' ? '' : mine.includes(t)
-              ? `<button class="btn ${s.ready[t] ? '' : 'gold'}" data-act="ready" data-team="${t}" data-v="${!s.ready[t]}">${s.ready[t] ? 'Not ready' : 'Ready'}</button>`
-              : `<span class="badge ${s.ready[t] ? 'ok' : ''}">${s.ready[t] ? 'Ready' : 'Not ready'}</span>`}</div>
+            <div class="small muted">Captain ${esc(s.captains[t].name)}</div>
           </div>`).join('')}</div>
         ${isAdmin() ? `<div class="row" style="margin-top:14px;justify-content:center"><button class="btn gold big" data-act="force">Start draft</button></div>` : ''}
-        <h3 style="margin-top:20px">The 10 players</h3>
-        <div class="pool">${s.players.map((p) => pcard(p, null, false, null)).join('')}</div>`;
+        <h3 style="margin-top:20px">Roster</h3>
+        ${playerListHtml()}`;
     }
 
     function centerSwap() {
       const s = state;
       const mine = myTeams();
-      return `<h2>Swap phase</h2>
-        <p class="muted">Want to shuffle roles? Click two players on your team to swap their roles. The cap still applies. Click Ready when you're happy with the lineup.</p>
-        <div class="grid2">${E.TEAMS.map((t) => `
+      return `<h2>Lock in your team</h2>
+        <p class="tip">All picks are made, but the draft isn't final yet. Until you lock in you can still move players between roles or drop a roster player on one of yours to swap them in.
+          Locking in freezes your team; you can cancel it as long as the other captain hasn't locked in too. <b>Once both captains are locked in, the draft is final.</b></p>
+        <div class="grid2">${[s.sides.A === 'blue' ? 'A' : 'B', s.sides.A === 'blue' ? 'B' : 'A'].map((t) => `
           <div class="lobby-cap ${s.ready[t] ? 'ready' : ''}">
             <div class="tn">${esc(s.teamNames[t])}</div>
-            <div class="small muted">${E.teamStars(s, t)} / ${s.cap}★</div>
+            <div class="small muted">${E.teamStars(s, t)}${capTxt(s)}</div>
             <div style="margin-top:12px">${mine.includes(t)
-              ? `<button class="btn ${s.ready[t] ? '' : 'gold'}" data-act="ready" data-team="${t}" data-v="${!s.ready[t]}" ${s.ready[t] ? 'disabled' : ''}>${s.ready[t] ? 'Ready ✓' : 'Ready'}</button>`
-              : `<span class="badge ${s.ready[t] ? 'ok' : ''}">${s.ready[t] ? 'Ready' : 'Swapping…'}</span>`}</div>
-          </div>`).join('')}</div>`;
+              ? (s.ready[t]
+                ? `<span class="badge ok">Locked in ✓</span> <button class="btn small" data-act="ready" data-team="${t}" data-v="false">Cancel lock-in</button>`
+                : `<button class="btn gold" data-act="ready" data-team="${t}" data-v="true">Lock in</button>`)
+              : `<span class="badge ${s.ready[t] ? 'ok' : ''}">${s.ready[t] ? 'Locked in' : 'Not locked in'}</span>`}</div>
+          </div>`).join('')}</div>
+        <div style="margin-top:14px">${playerListHtml()}</div>`;
     }
 
     function centerDone() {
@@ -778,11 +761,11 @@
           <div class="final">${E.TEAMS.map((t) => `<div class="lobby-cap"><div class="tn">${esc(s.teamNames[t])}</div>
             <div class="vs">${E.teamStars(s, t)}★</div><span class="badge ${s.sides[t]}">${s.sides[t]} side</span>
             <div class="small muted" style="margin-top:6px">Estimated win: ${Math.round(E.winChance(E.teamStars(s, t), E.teamStars(s, E.other(t))) * 100)}%</div></div>`).join('')}</div>
-          <p class="muted" style="margin-top:14px">Difference: ${Math.abs(a - b)}★ · cap was ${s.cap}★</p>
+          <p class="muted" style="margin-top:14px">Difference: ${Math.abs(a - b)}★${s.cap != null ? ' · cap was ' + s.cap + '★' : ''}</p>
           <div class="row" style="justify-content:center">
             <button class="btn gold" data-act="copy">Copy lineup for Discord</button>
             <button class="btn" data-act="export">Download JSON</button>
-            <button class="btn primary" data-act="again">New draft with these 10</button>
+            <button class="btn primary" data-act="again">New draft</button>
           </div>
         </div>`;
     }
@@ -795,29 +778,19 @@
       const nm = (id) => esc((E.playerById(s, id) || {}).name || '?');
       const log = s.log.slice().reverse().map((e) => {
         if (e.kind === 'swap') return `<div class="${e.team}">${esc(s.teamNames[e.team])} swapped ${roleTag(e.r1)} ↔ ${roleTag(e.r2)}</div>`;
+        if (e.kind === 'lock' || e.kind === 'unlock') return `<div class="${e.team}">${esc(s.teamNames[e.team])} ${e.kind === 'lock' ? 'locked in ✓' : 'cancelled their lock-in'}</div>`;
+        if (e.kind === 'bench') return `<div class="${e.team}">${esc(s.teamNames[e.team])} swapped in ${nm(e.playerId)} for ${nm(e.out)} ${roleTag(e.role)}</div>`;
+        if (e.kind === 'release') return `<div class="${e.team}">${esc(s.teamNames[e.team])} sent ${nm(e.playerId)} back to the roster ${roleTag(e.role)}</div>`;
+        if (e.kind === 'move') return `<div class="${e.team}">${esc(s.teamNames[e.team])} moved ${nm(e.playerId)} ${roleTag(e.r1)} → ${roleTag(e.r2)}</div>`;
         const p = E.playerById(s, e.playerId);
         return `<div class="${e.team}">${e.kind === 'captain' ? '♛' : '#' + e.n} <b>${esc(s.teamNames[e.team])}</b> → ${nm(e.playerId)} ${roleTag(e.role)} ${stars(p.ratings[e.role])}${e.auto ? ' <span class="badge">auto</span>' : ''}</div>`;
       }).join('') || '<span class="muted small">No picks yet.</span>';
 
-      let admin = '';
-      if (isAdmin() && ctx.mode !== 'view') {
-        const links = ctx.mode === 'online' && ctx.keys ? `
-          <h3 style="margin-top:14px">Invite links</h3>
-          ${[['Captain A', ctx.keys.A, 'A'], ['Captain B', ctx.keys.B, 'B'], ['Spectators', '', null]].map(([lbl, k, t]) => `
-            <div class="share" style="margin-bottom:6px"><span class="small">${t ? esc(s.teamNames[t]) : lbl}</span>
-              <input readonly value="${esc(roomLink(s.id, k))}"><button class="btn small" data-copy="${esc(roomLink(s.id, k))}">Copy</button></div>`).join('')}` : '';
-        admin = `<div class="panel"><h2>${ctx.mode === 'local' ? 'Controls' : 'Organizer'}</h2>
+      const admin = isAdmin() ? `<div class="panel"><h2>Controls</h2>
           <div class="row">
             ${s.deadline || s.paused ? `<button class="btn" data-act="${s.paused ? 'resume' : 'pause'}">${s.paused ? '▶ Resume' : '⏸ Pause timer'}</button>` : ''}
             <button class="btn" data-act="undo" ${ui.canUndo ? '' : 'disabled'}>↶ Undo</button>
-            ${ctx.mode === 'online' ? `<label class="field" style="flex-direction:row;align-items:center;gap:6px">Act as
-              <select data-actas><option value="">Nobody</option>${E.TEAMS.map((t) => `<option value="${t}" ${ui.actAs === t ? 'selected' : ''}>${esc(s.teamNames[t])}</option>`).join('')}</select></label>` : ''}
-          </div>${links}</div>`;
-      } else if (ctx.mode === 'online') {
-        admin = `<div class="panel"><h2>Room <span class="code">${esc(s.id)}</span></h2>
-          <p class="small muted">You are ${ctx.seat === 'spectator' ? 'spectating' : 'captain of <b>' + esc(s.teamNames[ctx.seat]) + '</b>'}.</p>
-          <div class="share"><span class="small">Spectate</span><input readonly value="${esc(roomLink(s.id))}"><button class="btn small" data-copy="${esc(roomLink(s.id))}">Copy</button></div></div>`;
-      }
+          </div></div>` : '';
 
       return `<div class="grid3" style="margin-top:16px">
         <div class="panel">
@@ -826,7 +799,7 @@
           <div class="meter-lbl"><span><b>${esc(s.teamNames[L])}</b> ${sl}★ · ${Math.round(p * 100)}%</span><span>${Math.round((1 - p) * 100)}% · ${sr}★ <b>${esc(s.teamNames[R])}</b></span></div>
           <p class="small muted" style="margin-top:12px">Pick order</p>
           <div class="order-strip">${s.order.map((t, i) => `<span class="${t} ${i < s.pickIndex || s.phase === 'swap' || s.phase === 'done' ? 'done' : ''} ${s.phase === 'draft' && i === s.pickIndex ? 'now' : ''}">${t}</span>`).join('')}</div>
-          <p class="small muted" style="margin-top:12px">Cap ${s.cap}★ · min role ${s.settings.minRoleRating}★ · ${s.settings.pickTimer ? s.settings.pickTimer + 's per pick' : 'no timer'}</p>
+          <p class="small muted" style="margin-top:12px">${s.cap != null ? 'Cap ' + s.cap + '★' : 'No cap'} · min role ${s.settings.minRoleRating}★ · ${s.settings.pickTimer ? s.settings.pickTimer + 's per pick' : 'no timer'}</p>
         </div>
         <div class="panel"><h2>Pick log</h2><div class="log">${log}</div></div>
         ${admin || '<div></div>'}
@@ -835,6 +808,8 @@
 
     function draw() {
       const s = state;
+      if (ui.sel && !E.unplaced(s).some((p) => p.id === ui.sel)) ui.sel = null;
+      if (ui.swapSel && ((s.phase !== 'swap' && s.phase !== 'draft') || !s.teams[ui.swapSel.team].slots[ui.swapSel.role])) ui.swapSel = null;
       const L = s.sides.A === 'blue' ? 'A' : 'B', R = E.other(L);
       const pi = phaseInfo();
       let center = '';
@@ -844,8 +819,7 @@
       else if (s.phase === 'swap') center = centerSwap();
       else center = centerDone();
 
-      const conn = ctx.mode === 'online' && ui.disconnected ? '<div class="alert warn" style="margin-bottom:12px">Connection lost. Reconnecting…</div>' : '';
-      $app.innerHTML = conn + `
+      $app.innerHTML = `
         <div class="hud">
           <div class="hud-top">
             ${banner(L)}
@@ -857,18 +831,14 @@
             </div>
             ${banner(R)}
           </div>
-          <aside>${slotsHtml(L)}</aside>
-          <section class="hud-center panel">${center}</section>
-          <aside>${slotsHtml(R)}</aside>
+          <div class="draft-grid">
+            <section class="panel hud-center">${center}</section>
+            <section class="panel board-panel">${boardHtml()}</section>
+          </div>
         </div>
         ${bottom()}`;
       tick();
-
-      // Your-turn notification
-      const myTurn = s.phase === 'draft' && myTeams().includes(E.currentTeam(s)) && ctx.mode === 'online';
-      if (myTurn && !ui.wasMyTurn) beep();
-      ui.wasMyTurn = myTurn;
-      document.title = (myTurn ? '▶ YOUR PICK · ' : '') + s.teamNames.A + ' vs ' + s.teamNames.B;
+      document.title = s.teamNames.A + ' vs ' + s.teamNames.B;
     }
 
     function tick() {
@@ -881,56 +851,144 @@
       const secs = Math.ceil(rem / 1000);
       el.textContent = state.paused ? '⏸ ' + secs : secs;
       el.classList.toggle('low', !state.paused && secs <= 10);
-      const total = (state.phase === 'swap' ? state.settings.swapTimer : state.settings.pickTimer) * 1000;
+      const total = state.settings.pickTimer * 1000;
       if (bar && total) bar.style.width = Math.min(100, (rem / total) * 100) + '%';
       if (ctx.onTick && !state.paused && rem <= 0) ctx.onTick();
     }
     ticker = setInterval(tick, 200);
 
-    // ---------- interaction ----------
-    const turnTeam = () => {
-      const t = E.currentTeam(state);
-      return t && myTeams().includes(t) ? t : null;
-    };
-    function lockIn() {
-      const t = turnTeam();
-      if (!t || !ui.sel || !ui.role) return;
-      const action = { type: 'pick', playerId: ui.sel, role: ui.role };
-      ui.sel = null; ui.role = null;
-      act(action, t);
+    /* ---------- drag & drop (pointer events, so it works with mouse and touch) ---------- */
+    let dg = null;            // the gesture in progress
+    let suppressClick = false;
+    const srcOf = (el) => (el.dataset.drag === 'slot'
+      ? { kind: 'slot', team: el.dataset.team, role: el.dataset.role }
+      : { kind: 'player', pid: el.dataset.pid });
+    const blockScroll = (e) => { if (dg && dg.active) e.preventDefault(); };
+
+    function onDown(e) {
+      if (!state || e.button > 0 || dg) return;
+      const el = e.target.closest('[data-drag]');
+      if (!el || !$app.contains(el)) return;
+      const box = el.getBoundingClientRect();
+      dg = {
+        src: srcOf(el), el, id: e.pointerId, touch: e.pointerType !== 'mouse', active: false, over: null,
+        sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, dx: e.clientX - box.left, dy: e.clientY - box.top, w: box.width,
+      };
+      // touchmove still fires on the original element after a redraw detaches it, so block scrolling there too
+      el.addEventListener('touchmove', blockScroll, { passive: false });
+      if (dg.touch) dg.timer = setTimeout(startDrag, 200); // long-press on touch, so a swipe still scrolls the page
+      else e.preventDefault(); // no text selection while dragging with a mouse
     }
+
+    function startDrag() {
+      if (!dg || dg.active) return;
+      dg.active = true;
+      dg.ghost = dg.el.cloneNode(true);
+      dg.ghost.classList.add('drag-ghost');
+      dg.ghost.style.width = dg.w + 'px';
+      document.body.appendChild(dg.ghost);
+      document.body.classList.add('dragging');
+      ui.drag = dg.src; ui.sel = null; ui.swapSel = null;
+      draw();
+      moveGhost();
+      requestAnimationFrame(autoScroll);
+    }
+
+    function moveGhost() {
+      dg.ghost.style.transform = `translate(${dg.x - dg.dx}px, ${dg.y - dg.dy}px) rotate(2deg)`;
+      const hit = document.elementFromPoint(dg.x, dg.y);
+      const slot = hit && hit.closest('.slot.drop-ok, .slot.drop-bad, .release-zone');
+      if (slot !== dg.over) { hover(dg.over, false); dg.over = slot; hover(slot, true); }
+    }
+
+    // Preview the team total in the board header while hovering a legal slot.
+    function hover(slot, on) {
+      if (!slot) return;
+      slot.classList.toggle('over', on);
+      const tot = $app.querySelector(`[data-total="${slot.dataset.team}"]`);
+      if (!tot || slot.dataset.delta == null) return;
+      const used = E.teamStars(state, slot.dataset.team);
+      tot.textContent = on ? used + +slot.dataset.delta : used;
+      tot.classList.toggle('preview', on);
+    }
+
+    // Scroll the page while the card is held near the top or bottom edge.
+    function autoScroll() {
+      if (!dg || !dg.active) return;
+      const edge = 80, h = window.innerHeight;
+      const v = dg.y < edge ? -(edge - dg.y) / 3 : dg.y > h - edge ? (dg.y - (h - edge)) / 3 : 0;
+      if (v) { window.scrollBy(0, v); moveGhost(); }
+      requestAnimationFrame(autoScroll);
+    }
+
+    function onMove(e) {
+      if (!dg || e.pointerId !== dg.id) return;
+      dg.x = e.clientX; dg.y = e.clientY;
+      if (dg.active) return moveGhost();
+      if (Math.hypot(dg.x - dg.sx, dg.y - dg.sy) < 6) return;
+      if (dg.touch) endDrag(); // finger moved before the long-press: it's a scroll
+      else startDrag();
+    }
+
+    function endDrag() {
+      const d = dg;
+      if (!d) return null;
+      dg = null;
+      clearTimeout(d.timer);
+      d.el.removeEventListener('touchmove', blockScroll);
+      if (d.ghost) d.ghost.remove();
+      document.body.classList.remove('dragging');
+      ui.drag = null;
+      return d;
+    }
+
+    function onUp(e) {
+      if (!dg || e.pointerId !== dg.id) return;
+      const d = endDrag();
+      if (!d.active) return;
+      suppressClick = true; setTimeout(() => { suppressClick = false; });
+      if (d.over && d.over.dataset.release) release(d.src);
+      else if (d.over) place(d.src, d.over.dataset.team, d.over.dataset.role);
+      else draw();
+    }
+
+    function onCancel(e) {
+      if (!dg || e.pointerId !== dg.id) return;
+      if (endDrag().active) draw();
+    }
+
+    const onContext = (e) => { if (e.target.closest && e.target.closest('[data-drag]')) e.preventDefault(); };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
+    document.addEventListener('touchmove', blockScroll, { passive: false });
+    document.addEventListener('contextmenu', onContext);
+
+    /* ---------- clicks & taps ---------- */
     $app.onclick = (e) => {
-      if (!state) return;
-      const cp = e.target.closest('[data-copy]');
-      if (cp) return copy(cp.dataset.copy);
-      const f = e.target.closest('[data-filter]');
-      if (f) { ui.filter = f.dataset.filter; return draw(); }
-      const card = e.target.closest('.pcard');
-      if (card && state.phase === 'draft' && turnTeam()) {
-        ui.sel = card.dataset.pid;
-        const t = turnTeam();
-        const legal = E.legalPicks(state, t).filter((l) => l.playerId === ui.sel).sort((a, b) => b.stars - a.stars);
-        ui.role = legal.length ? legal[0].role : null;
+      if (!state || suppressClick) return;
+      const card = e.target.closest('[data-drag="player"]');
+      if (card) {
+        ui.sel = ui.sel === card.dataset.pid ? null : card.dataset.pid;
+        ui.swapSel = null;
         return draw();
       }
-      const pr = e.target.closest('[data-pickrole]');
-      if (pr) { ui.role = pr.dataset.pickrole; return draw(); }
-      const cl = e.target.closest('[data-caplock]');
-      if (cl) return act({ type: 'lockCaptain', role: cl.dataset.caplock }, cl.dataset.team);
-      const slot = e.target.closest('.slot.swappable');
+      const slot = e.target.closest('.slot, .pp[data-drag="slot"]');
       if (slot) {
         const t = slot.dataset.team, r = slot.dataset.role;
-        if (!ui.swapSel || ui.swapSel.team !== t) { ui.swapSel = { team: t, role: r }; return draw(); }
-        if (ui.swapSel.role === r) { ui.swapSel = null; return draw(); }
-        const r1 = ui.swapSel.role; ui.swapSel = null;
-        const c = E.checkSwap(state, t, r1, r);
-        if (!c.ok) { toast(c.reason, 'err'); return draw(); }
-        return act({ type: 'swap', r1, r2: r }, t);
+        const src = activeSource();
+        if (src && dropCheck(src, t, r)) return place(src, t, r);
+        if (slot.dataset.drag === 'slot') {
+          ui.swapSel = ui.swapSel && ui.swapSel.team === t && ui.swapSel.role === r ? null : { team: t, role: r };
+          return draw();
+        }
+        return;
       }
       const b = e.target.closest('[data-act]');
       if (!b) return;
       switch (b.dataset.act) {
-        case 'lockin': return lockIn();
+        case 'release': return ui.swapSel && release({ kind: 'slot', team: ui.swapSel.team, role: ui.swapSel.role });
         case 'ready': return act({ type: 'ready', value: b.dataset.v === 'true' }, b.dataset.team);
         case 'force': return act({ type: 'forceStart' }, 'admin');
         case 'pause': return act({ type: 'pause' }, 'admin');
@@ -938,85 +996,32 @@
         case 'undo': return ctx.undo();
         case 'copy': return copy(E.summary(state));
         case 'export': return download('draft-' + state.id + '.json', JSON.stringify(state, null, 2));
-        case 'again': {
-          const setup = getSetup();
-          const pool = getPool();
-          // map draft players back to pool ids by name (pool ids may differ for imported drafts)
-          setup.selected = state.players.map((p) => (pool.find((x) => x.id === p.id || x.name.toLowerCase() === p.name.toLowerCase()) || {}).id).filter(Boolean);
-          setSetup(setup);
-          location.hash = '#/setup';
-        }
+        case 'again': location.hash = '#/setup';
       }
     };
-    $app.onchange = (e) => {
-      if (e.target.matches('[data-actas]')) { ui.actAs = e.target.value; ui.sel = null; draw(); }
-    };
     document.onkeydown = (e) => {
-      if (e.key === 'Enter' && state && state.phase === 'draft' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) lockIn();
-      if (e.key === 'Escape') { ui.sel = null; ui.role = null; ui.swapSel = null; if (state) draw(); }
+      if (e.key !== 'Escape' || !state) return;
+      endDrag();
+      ui.sel = null; ui.swapSel = null;
+      draw();
     };
 
     return {
       update,
       setMeta(extra) { Object.assign(ui, extra); if (state) draw(); },
-      destroy() { clearInterval(ticker); document.onkeydown = null; },
+      destroy() {
+        clearInterval(ticker);
+        endDrag();
+        document.onkeydown = null;
+        document.removeEventListener('pointerdown', onDown);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onCancel);
+        document.removeEventListener('touchmove', blockScroll);
+        document.removeEventListener('contextmenu', onContext);
+      },
       get state() { return state; },
     };
-  }
-
-  /* =========================================================
-   * Online room
-   * ======================================================= */
-  function viewRoom(id, key) {
-    $app.innerHTML = '<div class="panel"><h2>Connecting to room <span class="code">' + esc(id) + '</span>…</h2></div>';
-    let es = null, offset = 0, dead = false, view = null, seat = 'spectator';
-
-    const ctx = {
-      mode: 'online', seat, keys: null,
-      now: () => Date.now() + offset,
-      async act(action, team) {
-        const body = { key, action };
-        if (seat === 'admin' && E.TEAMS.includes(team)) body.asTeam = team;
-        try {
-          const r = await fetch('api/rooms/' + id + '/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-          const d = await r.json();
-          if (!r.ok) toast(d.error || 'Action failed', 'err');
-        } catch (_) { toast('Network error', 'err'); }
-      },
-      undo() { return ctx.act({ type: 'undo' }); },
-      onDone(s) { saveToHistory(s, 'online'); },
-    };
-
-    (async () => {
-      let d;
-      try {
-        const r = await fetch('api/rooms/' + id + '?key=' + encodeURIComponent(key), { cache: 'no-store' });
-        d = await r.json();
-        if (!r.ok) throw new Error(d.error || 'Room not found');
-      } catch (e) {
-        if (dead) return;
-        $app.innerHTML = `<div class="panel"><h2>Room ${esc(id)} unavailable</h2><p class="muted">${esc(e.message)}. The room may have expired (after 48h) or the server is down.</p><a class="btn" href="#/">Back</a></div>`;
-        return;
-      }
-      if (dead) return;
-      seat = ctx.seat = d.seat;
-      if (seat === 'admin') ctx.keys = LS.get('keys.' + id, null);
-      if (key && seat === 'spectator') toast('That invite key is not valid. Joining as spectator.', 'err');
-      rememberRoom({ id, key: seat === 'spectator' ? '' : key, seat, teamNames: d.state.teamNames });
-      offset = d.now - Date.now();
-      view = createDraftView(ctx);
-      view.update(d.state, { presence: d.presence });
-
-      es = new EventSource('api/rooms/' + id + '/events?key=' + encodeURIComponent(key));
-      es.addEventListener('state', (ev) => {
-        const m = JSON.parse(ev.data);
-        offset = m.now - Date.now();
-        view.update(m.state, { presence: m.presence, canUndo: m.canUndo, disconnected: false });
-      });
-      es.onerror = () => { if (!dead && view) view.setMeta({ disconnected: true }); };
-    })();
-
-    cleanup = () => { dead = true; if (es) es.close(); if (view) view.destroy(); };
   }
 
   /* =========================================================
@@ -1036,7 +1041,7 @@
       view.update(next, { canUndo: history.length > 0 });
     }
     const ctx = {
-      mode: 'local', seat: 'admin',
+      mode: 'local',
       now: () => Date.now(),
       act(action, team) {
         const r = E.apply(view.state, Object.assign({}, action, { team }), Date.now());
@@ -1047,7 +1052,7 @@
         const prev = history.pop();
         if (!prev) return;
         const s = JSON.parse(JSON.stringify(prev));
-        if (s.deadline) s.deadline = Date.now() + (s.phase === 'swap' ? s.settings.swapTimer : s.settings.pickTimer) * 1000;
+        if (s.deadline) s.deadline = Date.now() + s.settings.pickTimer * 1000;
         s.seq = view.state.seq + 1;
         persist(s);
         view.update(s, { canUndo: history.length > 0 });
@@ -1060,7 +1065,8 @@
     };
     // Resuming an old local draft: give the current turn a fresh clock instead of insta-autopicking.
     const s0 = rec.state;
-    if (s0.deadline && !s0.paused && s0.deadline < Date.now()) s0.deadline = Date.now() + (s0.phase === 'swap' ? s0.settings.swapTimer : s0.settings.pickTimer) * 1000;
+    if (s0.phase === 'swap') s0.deadline = null; // lock-in has no timer (older drafts may still carry one)
+    if (s0.deadline && !s0.paused && s0.deadline < Date.now()) s0.deadline = Date.now() + s0.settings.pickTimer * 1000;
     const view = createDraftView(ctx);
     view.update(s0, { canUndo: history.length > 0 });
     cleanup = () => view.destroy();
@@ -1080,9 +1086,9 @@
       <div class="list">${h.map((x, i) => {
         const s = x.state, a = E.teamStars(s, 'A'), b = E.teamStars(s, 'B');
         return `<div class="list-item">
-          <span class="badge ${x.mode === 'online' ? 'blue' : 'gold'}">${x.mode}</span>
+          <span class="badge ${x.mode === 'import' ? 'blue' : 'gold'}">${x.mode}</span>
           <div class="grow"><b>${esc(s.teamNames.A)}</b> ${a}★ vs ${b}★ <b>${esc(s.teamNames.B)}</b>
-            <div class="small muted">${fmtDate(s.finishedAt)} · cap ${s.cap}★ · Δ ${Math.abs(a - b)}★</div></div>
+            <div class="small muted">${fmtDate(s.finishedAt)}${s.cap != null ? ' · cap ' + s.cap + '★' : ''} · Δ ${Math.abs(a - b)}★</div></div>
           <a class="btn small" href="#/history/${i}">View</a>
           <button class="btn small" data-act="copy" data-i="${i}">Copy</button>
           <button class="btn small danger" data-act="del" data-i="${i}">✕</button>
@@ -1113,7 +1119,7 @@
   function viewHistoryItem(i) {
     const x = getHistory()[i];
     if (!x) { location.hash = '#/history'; return; }
-    const view = createDraftView({ mode: 'view', seat: 'spectator', now: () => Date.now(), act() { }, undo() { } });
+    const view = createDraftView({ mode: 'view', now: () => Date.now(), act() { }, undo() { } });
     view.update(x.state);
     cleanup = () => view.destroy();
   }
@@ -1126,25 +1132,25 @@
       <h1>Draft rules</h1>
       <h2>Ratings</h2>
       <p>Every player is rated <b>1–5 stars</b> on each role (Top, Jungle, Mid, Bot/ADC, Support). A player's value on a team is their rating <b>on the role they were drafted to</b>. A 5★ mid placed on support with 2★ counts as 2★, and plays like it.</p>
-      <h2>The star cap</h2>
+      <h2>Team totals</h2>
       <ul>
-        <li>The app finds the <b>best possible total</b>: the most stars the 10 players can reach across the 10 role slots when everyone is placed perfectly.</li>
-        <li>Each team's cap is <b>half of that, rounded up, plus the tolerance</b> (default +1). You can also set a fixed cap.</li>
-        <li>A pick is <b>legal</b> only if it keeps the team at or under the cap <b>and</b> the rest of the draft can still finish with both teams under the cap. You can never get stuck at the last pick.</li>
-        <li>If you run low on stars, you can place a strong player on a weaker role. That costs fewer stars, but the player is weaker there too. Planning this is part of the strategy.</li>
+        <li>A team's total is the sum of each player's rating <b>on the role they are placed on</b>. Totals and the win estimate update live on the board.</li>
+        <li>There is <b>no star cap</b>: captains draft straight from the whole roster, and anyone not picked sits out.</li>
+        <li>A pick is blocked only if the role is taken, the player is rated below the minimum role rating there, or it would leave a role on either team that nobody left can fill.</li>
       </ul>
       <h2>Draft flow</h2>
       <ol>
-        <li><b>Lobby</b>: the organizer sends each captain their private link. The draft starts when both click Ready, or when the organizer force-starts it.</li>
-        <li><b>Captain roles</b> (when captains are players): each captain locks their own role first. It counts toward their cap.</li>
-        <li><b>Picks</b>: one player at a time in <b>snake order</b> (A B B A A B B A…), so getting the first pick is balanced out. The first pick is a coin flip, and the other team gets <b>blue side</b>.</li>
-        <li>Every pick is a <b>player + role</b> and is final. When the timer runs out, the highest-rated legal pick is made automatically.</li>
-        <li><b>Swap phase</b> (optional): captains can swap roles between their own players, for example if two of them agree to trade lanes. The cap still applies. Both click Ready to finish.</li>
+        <li><b>Lobby</b>: both captains sit at the same screen (or one shares it on Discord). Click Start draft when everyone is ready.</li>
+        <li><b>Captains</b> (when they play) start on their main role, the one they're rated highest on. They can be moved to another role later, but not benched.</li>
+        <li><b>Picks</b>: one player at a time, <b>alternating</b> (A B A B…). The first pick is a coin flip, and the other team gets <b>blue side</b>.</li>
+        <li>Every pick is a <b>player + role</b>: drag the player onto an empty role slot on your side of the board (or tap the player, then the slot). The slot shows what the pick is worth and the new team total before you drop. At any time, without using a pick, a team can drag its players to another role, drop a roster player on one of its players to swap them in (the other one goes back to the roster), or drag a player back to the roster (that pick is given back at the end of the order). When the timer runs out, the highest-rated legal pick is made automatically.</li>
+        <li><b>Lock in</b>: after the last pick the draft isn't final yet. Each captain can still change their team, then locks in. A lock-in can be cancelled until the other captain also locks in; once both are locked in, the draft is final.</li>
       </ol>
       <h2>Win estimate</h2>
       <p>The balance bar uses an Elo-style curve where each star of difference is worth about 7 percentage points near an even matchup. It's only a rough guide.</p>
       <h2>Saving</h2>
-      <p>Your player pool, setup, local drafts, room links and finished drafts are stored in this browser's <span class="kbd">localStorage</span>. Use export and import to move them to another browser or share them. Online rooms live on the server for 48 hours.</p>
+      <p>The player roster is the file <span class="kbd">data/players.json</span> that ships with the site. Run the app locally with <span class="kbd">npm run dev</span> and every rating edit is written into that file; commit and push it and everyone sees the new ratings. On the published site, edits stay in your browser only.</p>
+      <p>Setup, drafts in progress and finished drafts are stored in this browser's <span class="kbd">localStorage</span>. Use export and import on History to move them.</p>
       <h2>Tips for fair ratings</h2>
       <ul>
         <li>5★ = among the best in your group on that role. 3★ = solid. 1★ = can't or won't play it.</li>
@@ -1156,5 +1162,8 @@
 
   /* ========================================================= */
   window.addEventListener('hashchange', route);
-  checkServer().then(route);
+  loadPool().then(() => {
+    route();
+    if (DEV) new EventSource('__dev/reload').onmessage = () => location.reload();
+  });
 })();

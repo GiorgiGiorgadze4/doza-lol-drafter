@@ -1,14 +1,11 @@
 {
   "name": "doza-lol-drafter",
-  "version": "1.0.0",
-  "description": "Browser-based captain draft for League of Legends in-house games with star-rated roles and a balanced star cap.",
-  "main": "server.js",
+  "version": "2.0.0",
+  "description": "Browser-only captain draft for League of Legends in-house games: captains drag players from the roster onto a 5v5 board with star-rated roles and live team totals.",
   "private": true,
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "dev": "node scripts/dev.js",
     "test": "node test/engine.test.js"
   },
-  "engines": { "node": ">=18" },
   "license": "MIT"
 }

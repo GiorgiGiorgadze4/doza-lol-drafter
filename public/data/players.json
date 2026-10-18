@@ -1,0 +1,16 @@
+[
+  {"id":"doza","name":"geno","ratings":{"TOP":4,"JNG":3,"MID":5,"ADC":2,"SUP":2}},
+  {"id":"kruger","name":"Kruger","ratings":{"TOP":5,"JNG":3,"MID":2,"ADC":1,"SUP":2}},
+  {"id":"vexa","name":"Vexa","ratings":{"TOP":2,"JNG":2,"MID":3,"ADC":5,"SUP":3}},
+  {"id":"mirko","name":"Mirko","ratings":{"TOP":2,"JNG":5,"MID":3,"ADC":2,"SUP":3}},
+  {"id":"luka","name":"Luka","ratings":{"TOP":1,"JNG":2,"MID":2,"ADC":3,"SUP":5}},
+  {"id":"ivy","name":"vaxa","ratings":{"TOP":3,"JNG":4,"MID":3,"ADC":3,"SUP":3}},
+  {"id":"brann","name":"avto","ratings":{"TOP":4,"JNG":2,"MID":1,"ADC":2,"SUP":4}},
+  {"id":"sela","name":"Sela","ratings":{"TOP":2,"JNG":3,"MID":4,"ADC":4,"SUP":2}},
+  {"id":"torvin","name":"Torvin","ratings":{"TOP":3,"JNG":3,"MID":2,"ADC":2,"SUP":4}},
+  {"id":"nika","name":"Nika","ratings":{"TOP":2,"JNG":4,"MID":4,"ADC":1,"SUP":3}},
+  {"id":"ralph","name":"Ralph","ratings":{"TOP":3,"JNG":1,"MID":2,"ADC":4,"SUP":3}},
+  {"id":"jinxo","name":"saba","ratings":{"TOP":1,"JNG":2,"MID":3,"ADC":5,"SUP":2}},
+  {"id":"grom","name":"zaza","ratings":{"TOP":5,"JNG":3,"MID":2,"ADC":1,"SUP":1}},
+  {"id":"pela","name":"Pela","ratings":{"TOP":2,"JNG":2,"MID":2,"ADC":3,"SUP":4}}
+]
