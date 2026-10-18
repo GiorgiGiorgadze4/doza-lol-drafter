@@ -39,6 +39,7 @@
     captainsArePlayers: true,
     pickOrder: 'alternate', // 'alternate' | 'snake'
     noCap: false,          // true = no star cap; players come from a full roster (10 or more), teams just compare totals
+    starLimit: 0,          // soft max stars per team, only shown as a warning (0 = automatic: even split + tolerance)
   };
 
   const other = (t) => (t === 'A' ? 'B' : 'A');
@@ -61,6 +62,7 @@
     o.pickTimer = clamp(Math.round(+o.pickTimer || 0), 0, 600);
     o.captainsArePlayers = !!o.captainsArePlayers;
     o.noCap = !!o.noCap;
+    o.starLimit = clamp(Math.round((+o.starLimit || 0) * 2) / 2, 0, 25);
     o.pickOrder = o.pickOrder === 'snake' ? 'snake' : 'alternate';
     return o;
   }
@@ -283,6 +285,8 @@
     if (captains.A.playerId && captains.A.playerId === captains.B.playerId) throw new Error('Captains must be different players.');
 
     const { best, cap: baseCap, feasible } = settings.noCap ? { best: null, cap: null, feasible: true } : computeCap(players, settings);
+    const auto = computeCap(players, Object.assign({}, settings, { capOverride: 0 }));
+    const starLimit = settings.starLimit || (baseCap != null ? baseCap : auto.feasible ? auto.cap : null);
     if (!feasible) throw new Error('These 10 players cannot fill all 10 role slots with min rating ' + settings.minRoleRating + '.');
 
     const teamNames = {
@@ -295,7 +299,7 @@
       id: opts.id || null,
       createdAt: opts.now || Date.now(),
       settings, players, captains, teamNames,
-      best, cap: baseCap, autoCapRaised: 0,
+      best, cap: baseCap, autoCapRaised: 0, starLimit,
       teams: { A: { slots: {} }, B: { slots: {} } },
       phase: 'lobby',
       firstPick: opts.firstPick || (Math.random() < 0.5 ? 'A' : 'B'),
@@ -609,6 +613,13 @@
 
   /* ---------- stats ---------- */
 
+  // How far a team total is over the soft star limit: 'ok', 'warn' (up to 3 stars over) or 'bad' (more than 3 over).
+  function limitLevel(state, total) {
+    if (state.starLimit == null) return 'ok';
+    const over = total - state.starLimit;
+    return over > 3 ? 'bad' : over > 0 ? 'warn' : 'ok';
+  }
+
   // Elo-like estimate: each star of difference ~ +7 percentage points near 50/50.
   function winChance(starsA, starsB) {
     return 1 / (1 + Math.pow(10, -(starsA - starsB) / 8));
@@ -617,7 +628,7 @@
   function summary(state) {
     const lines = [];
     for (const t of TEAMS) {
-      lines.push('**' + state.teamNames[t] + '** (' + state.sides[t] + ' side) - ' + teamStars(state, t) + (state.cap != null ? '/' + state.cap : '') + ' stars');
+      lines.push('**' + state.teamNames[t] + '** (' + state.sides[t] + ' side) - ' + teamStars(state, t) + (state.cap != null ? '/' + state.cap : state.starLimit != null ? ' (max ' + state.starLimit + ')' : '') + ' stars');
       for (const r of ROLES) {
         const p = playerById(state, state.teams[t].slots[r]);
         lines.push('  ' + r.padEnd(3) + '  ' + (p ? p.name + '  ' + '★'.repeat(Math.floor(p.ratings[r])) + (p.ratings[r] % 1 ? '½' : '') : '-'));
@@ -635,6 +646,6 @@
     createDraft, apply, currentTeam,
     checkPick, checkCaptainLock, checkSwap, checkBench, checkRelease, legalPicks,
     playerById, teamStars, openRoles, pool, unplaced, captainTeamOf,
-    winChance, summary,
+    winChance, summary, limitLevel,
   };
 });

@@ -229,6 +229,11 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .bh .tot { font-size: 13px; color: var(--muted); }
 .bh .tot b { font-family: Cinzel, serif; font-size: 26px; color: var(--gold2); transition: color .15s; }
 .bh .tot b.preview { color: var(--ok); }
+.bh.mid .lim { font-family: Inter, system-ui, sans-serif; font-size: 10px; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; white-space: nowrap; }
+.bh.mid .lim b { font-family: Cinzel, serif; font-size: 15px; color: var(--gold2); letter-spacing: 0; }
+/* team totals vs the star limit: yellow = up to 3 over, red = more than 3 over */
+b.lim-warn, b.lim-warn.preview, .bh .tot b.lim-warn { color: #f5d742 !important; text-shadow: 0 0 10px #f5d74266; }
+b.lim-bad, b.lim-bad.preview, .bh .tot b.lim-bad { color: #ff4d4d !important; text-shadow: 0 0 10px #ff4d4d66; }
 .brole { display: flex; align-items: center; justify-content: center; }
 
 .slot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; min-height: 68px; min-width: 0; border-radius: 8px; background: #07111f; border: 1px solid var(--line); transition: .15s; }
