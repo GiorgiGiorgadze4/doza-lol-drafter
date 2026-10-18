@@ -104,6 +104,7 @@ label.check { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 .stars { display: inline-flex; gap: 1px; color: var(--star-off); font-size: 14px; line-height: 1; letter-spacing: 0; white-space: nowrap; }
 .stars i { font-style: normal; }
 .stars i.on { color: var(--star); text-shadow: 0 0 6px #f3c24f55; }
+.stars i.half { background: linear-gradient(90deg, var(--star) 50%, var(--star-off) 50%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .stars.edit i { cursor: pointer; font-size: 18px; padding: 0 1px; }
 .stars.edit i:hover { transform: scale(1.2); }
 .role { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; padding: 2px 6px; border-radius: 4px; font: 700 11px Inter, sans-serif; letter-spacing: .06em; color: #0b0f17; }

@@ -2,7 +2,7 @@
 const assert = require('assert');
 const E = require('../public/engine.js');
 
-const rnd = () => 1 + Math.floor(Math.random() * 5);
+const rnd = () => 1 + Math.floor(Math.random() * 9) / 2; // 1..5 in half-star steps
 
 // After the last pick: not final until both lock in; a lock-in can be cancelled until the other team locks too.
 function lockIn(s) {

@@ -3,7 +3,7 @@
  * Pure functions shared by the browser (local mode / previews) and the Node server (online mode).
  *
  * Core rules
- *  - 10 players, each rated 1..5 stars on TOP / JNG / MID / ADC / SUP.
+ *  - 10 players, each rated 1..5 stars (half steps allowed) on TOP / JNG / MID / ADC / SUP.
  *  - Two captains build 5-man teams; every pick = (player, role).
  *  - A player's stars on a team = his rating on the role he was assigned to.
  *  - Each team has a STAR CAP. By default cap = ceil(bestPossibleTotal / 2) + tolerance,
@@ -47,7 +47,7 @@
   function normalizePlayer(p) {
     const ratings = {};
     for (const r of ROLES) {
-      const v = Math.round(Number(p.ratings && p.ratings[r]));
+      const v = Math.round(Number(p.ratings && p.ratings[r]) * 2) / 2; // half-star steps
       ratings[r] = clamp(Number.isFinite(v) ? v : 1, 1, 5);
     }
     return { id: String(p.id), name: String(p.name || 'Player').slice(0, 32), ratings };
@@ -97,8 +97,11 @@
    * Can `players` (each with allowed teams) fill the open slots so that
    * stars(A) <= capA and stars(B) <= capB?  Slots are indexed 0..9 (A roles 0-4, B roles 5-9).
    * DP over (mask of filled slots) -> for each sumA the minimal sumB.
+   * Ratings can be half stars, so sums are tracked in half-star units to keep them integer indices.
    */
   function canComplete(players, openMask, capA, capB, minR) {
+    capA = Math.floor(capA * 2 + 1e-9);
+    capB = Math.floor(capB * 2 + 1e-9);
     const need = players.length;
     let open = 0;
     for (let i = 0; i < 10; i++) if (openMask & (1 << i)) open++;
@@ -116,8 +119,8 @@
           if (!(openMask & bit) || (mask & bit)) continue;
           const team = s < 5 ? 'A' : 'B';
           if (p.allowed && p.allowed !== team) continue;
-          const r = p.ratings[ROLES[s % 5]];
-          if (r < minR) continue;
+          const r = p.ratings[ROLES[s % 5]] * 2;
+          if (r < minR * 2) continue;
           const nm = mask | bit;
           let target = next.get(nm);
           for (let sa = 0; sa <= capA; sa++) {
@@ -617,7 +620,7 @@
       lines.push('**' + state.teamNames[t] + '** (' + state.sides[t] + ' side) - ' + teamStars(state, t) + (state.cap != null ? '/' + state.cap : '') + ' stars');
       for (const r of ROLES) {
         const p = playerById(state, state.teams[t].slots[r]);
-        lines.push('  ' + r.padEnd(3) + '  ' + (p ? p.name + '  ' + '★'.repeat(p.ratings[r]) : '-'));
+        lines.push('  ' + r.padEnd(3) + '  ' + (p ? p.name + '  ' + '★'.repeat(Math.floor(p.ratings[r])) + (p.ratings[r] % 1 ? '½' : '') : '-'));
       }
     }
     const a = teamStars(state, 'A'), b = teamStars(state, 'B');

@@ -26,7 +26,7 @@
   function stars(n, opts) {
     opts = opts || {};
     let s = '<span class="stars' + (opts.edit ? ' edit' : '') + '"' + (opts.attrs || '') + '>';
-    for (let i = 1; i <= 5; i++) s += '<i class="' + (i <= n ? 'on' : '') + '" data-v="' + i + '">★</i>';
+    for (let i = 1; i <= 5; i++) s += '<i class="' + (i <= n ? 'on' : i - 0.5 <= n ? 'half' : '') + '" data-v="' + i + '">★</i>';
     return s + '</span>';
   }
   // "/ 24★" for capped drafts, just "★" when there is no cap
@@ -325,7 +325,9 @@
       const star = e.target.closest('.stars.edit i');
       if (star) {
         const pid = star.closest('tr').dataset.pid, role = star.parentElement.dataset.role;
-        const pool = getPool(); pool.find((p) => p.id === pid).ratings[role] = +star.dataset.v;
+        // clicking the star that is already the top full star takes off half a star (5 -> 4.5)
+        const pool = getPool(), pl = pool.find((p) => p.id === pid), v = +star.dataset.v;
+        pl.ratings[role] = pl.ratings[role] === v && v > 1 ? v - 0.5 : v;
         setPool(pool); return drawTable();
       }
       const b = e.target.closest('[data-act]');
