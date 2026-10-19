@@ -15,7 +15,7 @@
  *  - Bench swaps: any time during the draft a team can swap a placed player for an unpicked roster player (no pick
  *    used), or send a player back to the roster, which gives the team that pick back at the end of the order.
  *  - Captains can be players: they start on their main (highest-rated) role, placed automatically.
- *  - Picks go one by one, alternating by default (A B A B ...; snake A B B A ... is optional); the team that picks second gets blue side.
+ *  - Picks go one by one, alternating by default (A B A B ...; snake A B B A ... is optional); the team that picks first is always blue side.
  *  - Placed players can be moved / swapped between roles inside their own team at any time during
  *    the draft (no turn used, cap and feasibility still apply).
  *  - After the last pick both captains must lock in. Until both have, each can cancel their lock-in and keep
@@ -313,7 +313,7 @@
       seq: 0,
     };
     for (const t of TEAMS) for (const r of ROLES) state.teams[t].slots[r] = null;
-    state.sides = { [other(state.firstPick)]: 'blue', [state.firstPick]: 'red' };
+    state.sides = { [state.firstPick]: 'blue', [other(state.firstPick)]: 'red' };
 
     // Captain-players start on their main role (highest rating; ties go to the earlier role), so there's no
     // captain step. If that would make the draft unfinishable, the next best role is used.

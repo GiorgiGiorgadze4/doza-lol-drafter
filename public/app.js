@@ -786,7 +786,7 @@
           <div class="stat"><div class="v">${pool.length - n}</div><div class="k">Sit out</div></div>
           <div class="stat"><div class="v">${s.starLimit != null ? s.starLimit + "★" : "—"}</div><div class="k">Max per team${st.starLimit ? "" : " (auto)"}</div></div>
         </div>
-        <p class="small muted" style="margin-top:12px">Pick order (the first pick is a coin flip, and the team that picks second gets blue side):</p>
+        <p class="small muted" style="margin-top:12px">Pick order (the first pick is a coin flip, and the team that picks first is blue side):</p>
         <div class="order-strip">${s.order.map((t) => `<span class="${t}">${t}</span>`).join("")}</div>
         <div class="alert ok small" style="margin-top:12px">No star cap: team totals and the win estimate update live as players are placed.</div>`
         }
@@ -2228,7 +2228,7 @@
       <ol>
         <li><b>Lobby</b>: both captains sit at the same screen (or one shares it on Discord). Click Start draft when everyone is ready.</li>
         <li><b>Captains</b> (when they play) start on their main role, the one they're rated highest on. They can be moved to another role later, but not benched.</li>
-        <li><b>Picks</b>: one player at a time, <b>alternating</b> (A B A B…). The first pick is a coin flip, and the other team gets <b>blue side</b>.</li>
+        <li><b>Picks</b>: one player at a time, <b>alternating</b> (A B A B…). The first pick is a coin flip, and that team gets <b>blue side</b>.</li>
         <li>Every pick is a <b>player + role</b>: drag the player onto an empty role slot on your side of the board (or tap the player, then the slot). The slot shows what the pick is worth and the new team total before you drop. At any time, without using a pick, a team can drag its players to another role, drop a roster player on one of its players to swap them in (the other one goes back to the roster), or drag a player back to the roster (that pick is given back at the end of the order). When the timer runs out, the highest-rated legal pick is made automatically.</li>
         <li><b>Lock in</b>: after the last pick the draft isn't final yet. Each captain can still change their team, then locks in. A lock-in can be cancelled until the other captain also locks in; once both are locked in, the draft is final.</li>
       </ol>

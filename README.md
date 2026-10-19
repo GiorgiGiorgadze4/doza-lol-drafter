@@ -45,8 +45,8 @@ On the published (static) site the Players page still works, but edits are kept 
 | A pick is worth the player's rating **on the assigned role** | – | Off-role players add fewer stars, and they really are weaker there. |
 | **No star cap** | – | Captains draft freely from the whole roster; the board shows both totals and the balance bar a rough win estimate. (The engine still supports the older capped 10-player mode.) |
 | **No dead ends**: a pick is legal only if both teams can still fill every role with the players left | always on | Checked with a small matching search, so the last pick is never impossible. |
-| **Alternating picks** | A B A B… | One player per turn; the team that picks second gets blue side to balance the first pick. |
-| First pick is a **coin flip**; the other team gets **blue side** | – | Compensates the team that picks second. |
+| **Alternating picks** | A B A B… | One player per turn; the team that picks first is always blue side. |
+| First pick is a **coin flip**; that team gets **blue side** | – | Blue side always picks first. |
 | **Min role rating** | 1★ (off) | Set it to 2★ to stop anyone being put on a role they can't play. |
 | **Pick timer** | 45 s | When it runs out, the best legal pick is made automatically. The organizer can pause it. |
 | **Lock in** | always, no timer | The draft only counts once both captains lock in; either can cancel until both have. |
