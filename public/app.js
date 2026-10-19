@@ -778,7 +778,7 @@
           <div class="stat"><div class="v">${s.settings.tokens}</div><div class="k">Tokens each</div></div>
           <div class="stat"><div class="v">${pool.length - n}</div><div class="k">Sit out</div></div>
         </div>
-        <div class="alert ok small" style="margin-top:12px">Each team buys ${AU.slotsLeft(s, "A")} players. The first nominator is a coin flip.</div>`
+        <div class="alert ok small" style="margin-top:12px">Each team buys ${AU.slotsLeft(s, "A")} players. Blue side nominates first.</div>`
               : `
         <div class="stat-grid">
           <div class="stat"><div class="v">${n}</div><div class="k">Playing</div></div>
@@ -2235,7 +2235,7 @@
       <h2>Auction drafter</h2>
       <ol>
         <li>Choose the 10 players and both captains, and how many <b>tokens</b> each captain gets (20 by default). Captains join their own team for free; the other players are auctioned, so each team buys until it has 5. Roles don't matter.</li>
-        <li>A <b>wheel</b> picks a random unsold player. Teams take turns nominating (the first nominator is a coin flip), and the nominating team <b>opens at 1 token</b>.</li>
+        <li>A <b>wheel</b> picks a random unsold player. Teams take turns nominating (blue side nominates first), and the nominating team <b>opens at 1 token</b>.</li>
         <li>The other team <b>raises or passes</b>, back and forth, until one of them passes. The highest bid buys the player and its tokens are spent.</li>
         <li>A team must keep <b>1 token for each other open slot</b>, so it can always complete its team. When a team is full it stops bidding, and the other team gets the remaining players for 1 token each. A bid is also final straight away when the other team can't afford to raise.</li>
         <li>With a bid timer, the team that has to answer passes when the time runs out. Undo takes back the last spin or bid.</li>

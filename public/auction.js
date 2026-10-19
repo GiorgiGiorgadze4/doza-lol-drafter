@@ -6,7 +6,7 @@
  *  - 10 players. Captains (when they play) are on their team for free; everyone else is auctioned,
  *    so each team buys until it has 5 players. Roles don't matter here.
  *  - Each captain starts with the same number of tokens.
- *  - A wheel picks the next player at random from the unsold ones. Teams take turns nominating:
+ *  - A wheel picks the next player at random from the unsold ones. Teams take turns nominating, blue (A) first:
  *    the nominating team automatically opens at 1 token, then the other team may raise or pass,
  *    back and forth, until someone passes. The highest bid buys the player.
  *  - A team must keep 1 token for every other slot it still has to fill, so it can never be left
@@ -52,7 +52,7 @@
   }
 
   /*
-   * opts: { players[10], captains: {A:{playerId|null, name}, B:{...}}, teamNames: {A,B}, settings, now, firstPick? }
+   * opts: { players[10], captains: {A:{playerId|null, name}, B:{...}}, teamNames: {A,B}, settings, now }
    * Returns a fresh auction state (phase 'spin'). Throws Error with a readable message when invalid.
    */
   function createAuction(opts) {
@@ -77,7 +77,7 @@
     const capIds = new Set(TEAMS.map((t) => captains[t].playerId).filter(Boolean));
     const queue = players.filter((p) => !capIds.has(p.id)).map((p) => p.id);
 
-    const firstPick = opts.firstPick || (Math.random() < 0.5 ? 'A' : 'B');
+    const firstPick = 'A'; // team A is the blue (left) side and always opens the first lot
     return {
       kind: 'auction',
       v: 1,
