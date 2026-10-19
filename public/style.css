@@ -363,11 +363,28 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .bid-box { margin-top: 12px; padding: 12px; border: 1px solid var(--gold-dim); border-radius: 8px; background: #c8aa6e10; }
 .bid-box.lead { border-color: var(--ok); background: #3ccf8e12; text-align: center; }
 .au-center { text-align: center; }
-.wheel { position: relative; width: min(500px, 88vw); aspect-ratio: 1; margin: 6px auto 0; }
-.wheel-rot { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 3px var(--gold-dim), 0 0 30px #c8aa6e33; }
-.wheel-svg { width: 100%; height: 100%; display: block; }
-.wheel-svg text { fill: #fff; font: 700 16px Inter, system-ui, sans-serif; paint-order: stroke; stroke: #0a142899; stroke-width: 2px; }
-.wheel-pointer { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); z-index: 2; width: 0; height: 0; border-left: 17px solid transparent; border-right: 17px solid transparent; border-top: 32px solid var(--gold2); filter: drop-shadow(0 2px 3px #000); }
+.wheel { position: relative; width: min(500px, 88vw); aspect-ratio: 1; margin: 22px auto 0; }
+.wheel::before { content: ""; position: absolute; inset: 2%; border-radius: 50%; box-shadow: 0 0 50px #c8aa6e40, 0 18px 40px #000a; }
+.wheel-rot { position: absolute; inset: 0; border-radius: 50%; will-change: transform; }
+.wheel-svg, .wheel-frame { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.wheel-frame { pointer-events: none; }
+.wheel-svg text { fill: #fff; font: 800 15px Inter, system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; paint-order: stroke; stroke: #0008; stroke-width: 2.5px; }
+.wheel-svg .dividers line { stroke: #f0d27acc; stroke-width: 1.6; }
+.wheel-svg .slice { transition: opacity .4s, filter .4s; }
+/* once the wheel stops, the winning slice lights up and the rest dim */
+.wheel.landed .slice { opacity: .4; }
+.wheel.landed .slice.win { opacity: 1; filter: brightness(1.25) drop-shadow(0 0 8px #f3c24f); }
+.wheel.landed .slice.win text { fill: #fff6d6; }
+.wheel-frame .hub-star { fill: #5a3d0c; font: 700 20px Inter, system-ui, sans-serif; }
+/* rim lights: dim at rest, chasing while the wheel turns, all lit once it lands */
+.wheel-frame .bulb { fill: #fff3c4; opacity: .45; }
+.wheel.spinning .wheel-frame .bulb { animation: bulb-chase .6s linear infinite; }
+.wheel.landed .wheel-frame .bulb { opacity: 1; filter: drop-shadow(0 0 3px #ffe08a); animation: bulb-glow 1.2s ease-in-out infinite alternate; }
+@keyframes bulb-chase { 0%, 100% { opacity: .25; } 25% { opacity: 1; } }
+@keyframes bulb-glow { from { opacity: .7; } to { opacity: 1; } }
+.wheel-pointer { position: absolute; top: -5.5%; left: 50%; width: 9%; margin-left: -4.5%; z-index: 2; transform-origin: 50% 30%; filter: drop-shadow(0 3px 4px #000c); }
+.wheel.spinning .wheel-pointer { animation: pointer-tick .14s ease-in-out infinite alternate; }
+@keyframes pointer-tick { from { transform: rotate(-9deg); } to { transform: rotate(5deg); } }
 .au-status { margin-top: 12px; font-size: 15px; }
 .au-lot { margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .au-lot .mini { display: flex; gap: 8px; font-size: 12px; color: var(--muted); }

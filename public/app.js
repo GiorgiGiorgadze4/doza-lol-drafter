@@ -1656,34 +1656,90 @@
    * Auction drafter (hot-seat: both captains bid on one screen)
    * ======================================================= */
   const SPIN_MS = 4200;
-  const WHEEL_COLORS = ["#1d4f7a", "#5a2a3a", "#2c5a45", "#5a4a22", "#3c2f66", "#24505e"];
+  // [rim, hub] shade pairs; each slice is a radial gradient from the darker hub colour out to the rim colour
+  const WHEEL_COLORS = [
+    ["#2f7fc0", "#123553"],
+    ["#b3364f", "#4a1422"],
+    ["#2f9a6c", "#123d2c"],
+    ["#c9952f", "#4d3510"],
+    ["#7a52c9", "#2a1a4d"],
+    ["#2c98a8", "#103a42"],
+  ];
   const coin = (n) => `${n}<i class="coin"></i>`;
 
   // SVG wheel: one slice per name, slice `i` centred on angle (i + .5) * 360 / n, clockwise from the top.
-  function wheelSvg(names) {
+  // `win` = index of the slice to highlight once the wheel has stopped (-1 for none).
+  function wheelSvg(names, win) {
     const n = names.length,
-      R = 150,
+      C = 150,
+      R = 138,
       seg = 360 / n;
     const pt = (deg, r) => {
       const a = ((deg - 90) * Math.PI) / 180;
-      return [R + r * Math.cos(a), R + r * Math.sin(a)];
+      return [C + r * Math.cos(a), C + r * Math.sin(a)];
     };
+    // when the last slice would get the same colour as the first one next to it, use another
+    const colorIdx = (i) =>
+      n > 1 && i === n - 1 && i % WHEEL_COLORS.length === 0 ? 2 : i % WHEEL_COLORS.length;
+    const defs = WHEEL_COLORS.map(
+      ([rim, hub], k) =>
+        `<radialGradient id="wg${k}" gradientUnits="userSpaceOnUse" cx="${C}" cy="${C}" r="${R}"><stop offset="0.15" stop-color="${hub}"/><stop offset="1" stop-color="${rim}"/></radialGradient>`,
+    ).join("");
     const slices = names
       .map((name, i) => {
         const a0 = i * seg,
           a1 = (i + 1) * seg,
           mid = a0 + seg / 2;
-        const [x0, y0] = pt(a0, R - 2),
-          [x1, y1] = pt(a1, R - 2),
-          [tx, ty] = pt(mid, R * 0.6);
-        const path =
+        const [x0, y0] = pt(a0, R),
+          [x1, y1] = pt(a1, R),
+          [tx, ty] = pt(mid, R - 14);
+        const fill = `url(#wg${colorIdx(i)})`;
+        const shape =
           n === 1
-            ? `<circle cx="${R}" cy="${R}" r="${R - 2}" fill="${WHEEL_COLORS[0]}"/>`
-            : `<path d="M${R},${R} L${x0},${y0} A${R - 2},${R - 2} 0 ${seg > 180 ? 1 : 0} 1 ${x1},${y1} Z" fill="${WHEEL_COLORS[i % WHEEL_COLORS.length]}" stroke="#0a1428" stroke-width="2"/>`;
-        return `${path}<text x="${tx}" y="${ty}" transform="rotate(${mid - 90} ${tx} ${ty})" text-anchor="middle" dominant-baseline="middle">${esc(name.length > 10 ? name.slice(0, 9) + "…" : name)}</text>`;
+            ? `<circle cx="${C}" cy="${C}" r="${R}" fill="${fill}"/>`
+            : `<path d="M${C},${C} L${x0},${y0} A${R},${R} 0 ${seg > 180 ? 1 : 0} 1 ${x1},${y1} Z" fill="${fill}"/>`;
+        const label = esc(name.length > 10 ? name.slice(0, 9) + "…" : name);
+        return `<g class="slice${i === win ? " win" : ""}">${shape}<text x="${tx}" y="${ty}" transform="rotate(${mid - 90} ${tx} ${ty})" text-anchor="end" dominant-baseline="middle">${label}</text></g>`;
       })
       .join("");
-    return `<svg viewBox="0 0 300 300" class="wheel-svg">${slices}<circle cx="${R}" cy="${R}" r="16" fill="#0a1428" stroke="var(--gold)" stroke-width="2"/></svg>`;
+    const dividers =
+      n > 1
+        ? names
+            .map((_, i) => {
+              const [x, y] = pt(i * seg, R);
+              return `<line x1="${C}" y1="${C}" x2="${x}" y2="${y}"/>`;
+            })
+            .join("")
+        : "";
+    return `<svg viewBox="0 0 300 300" class="wheel-svg"><defs>${defs}</defs>${slices}<g class="dividers">${dividers}</g></svg>`;
+  }
+
+  // The fixed parts around the turning wheel: gold rim with chasing lights, hub and pointer.
+  function wheelFrameSvg() {
+    const C = 150,
+      bulbs = 24;
+    const dots = Array.from({ length: bulbs }, (_, i) => {
+      const a = (((i * 360) / bulbs - 90) * Math.PI) / 180;
+      return `<circle class="bulb" cx="${C + 144 * Math.cos(a)}" cy="${C + 144 * Math.sin(a)}" r="3.4" style="animation-delay:${(i % 4) * -0.15}s"/>`;
+    }).join("");
+    return `<svg viewBox="0 0 300 300" class="wheel-frame">
+        <defs>
+          <linearGradient id="wrim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6e2a8"/><stop offset=".5" stop-color="#a87b2c"/><stop offset="1" stop-color="#f0d27a"/></linearGradient>
+          <radialGradient id="whub" cx=".38" cy=".32" r=".8"><stop offset="0" stop-color="#fff4c9"/><stop offset=".45" stop-color="#e2b24a"/><stop offset="1" stop-color="#7a5414"/></radialGradient>
+        </defs>
+        <circle cx="${C}" cy="${C}" r="144" fill="none" stroke="#0a1428" stroke-width="15"/>
+        <circle cx="${C}" cy="${C}" r="144" fill="none" stroke="url(#wrim)" stroke-width="11"/>
+        <circle cx="${C}" cy="${C}" r="138.5" fill="none" stroke="#00000088" stroke-width="1.5"/>
+        ${dots}
+        <circle cx="${C}" cy="${C}" r="24" fill="#0a1428"/>
+        <circle cx="${C}" cy="${C}" r="21" fill="url(#whub)" stroke="#f6e2a8" stroke-width="1.5"/>
+        <text x="${C}" y="${C + 1}" class="hub-star" text-anchor="middle" dominant-baseline="middle">★</text>
+      </svg>
+      <svg viewBox="0 0 40 52" class="wheel-pointer">
+        <defs><linearGradient id="wptr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff4c9"/><stop offset=".55" stop-color="#e2b24a"/><stop offset="1" stop-color="#8a6418"/></linearGradient></defs>
+        <path d="M20 50 L5 18 A16 16 0 1 1 35 18 Z" fill="url(#wptr)" stroke="#0a1428" stroke-width="2.5" stroke-linejoin="round"/>
+        <circle cx="20" cy="16" r="5.5" fill="#0a1428"/>
+      </svg>`;
   }
 
   function createAuctionView(ctx) {
@@ -1741,9 +1797,10 @@
       const ids = showLast ? s.lastSpin.wheel : s.queue;
       if (!showLast) rotation = rotation - (rotation % 360);
       const names = ids.map((id) => (AU.playerById(s, id) || {}).name || "?");
-      return `<div class="wheel">
-          <div class="wheel-pointer"></div>
-          <div class="wheel-rot" style="transform:rotate(${rotation}deg)">${names.length ? wheelSvg(names) : ""}</div>
+      const landed = showLast && !spinning;
+      return `<div class="wheel${spinning ? " spinning" : ""}${landed ? " landed" : ""}">
+          <div class="wheel-rot" style="transform:rotate(${rotation}deg)">${names.length ? wheelSvg(names, landed ? s.lastSpin.index : -1) : ""}</div>
+          ${wheelFrameSvg()}
         </div>`;
     }
 
