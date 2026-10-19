@@ -1787,6 +1787,7 @@
 
   /* ========================================================= */
   window.addEventListener("hashchange", route);
+
   loadPool().then(() => {
     route();
     if (DEV)
