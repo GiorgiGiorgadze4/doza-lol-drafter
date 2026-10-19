@@ -14,6 +14,11 @@
  *  - A full team can't bid: the other team gets the remaining players at the opening price.
  *    A lot also closes straight away when the other team can't afford to raise.
  *  - Optional bid timer: when it runs out, the team that has to answer passes.
+ *
+ * Lanes (enhanced mode, once the auction is done)
+ *  - Every player gets a lane, starting from each team's best-star layout. Any two players can then
+ *    swap places, inside a team or across the teams, so the final 5v5 is balanced by role stars
+ *    like a star draft. state.lanes = { A: { TOP: id, ... }, B: { ... } }.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'));
@@ -175,6 +180,22 @@
         sell(state, now, false);
         break;
       }
+      case 'autoLanes': {
+        if (state.phase !== 'done') return fail('Finish the auction first');
+        state.lanes = bestLanes(state);
+        break;
+      }
+      case 'swapLane': {
+        if (state.phase !== 'done' || !state.lanes) return fail('Assign lanes first');
+        const a = action.a || {}, b = action.b || {};
+        const ok = (x) => TEAMS.includes(x.team) && E.ROLES.includes(x.role);
+        if (!ok(a) || !ok(b)) return fail('Bad lane');
+        if (a.team === b.team && a.role === b.role) return fail('Same lane');
+        const L = state.lanes, tmp = L[a.team][a.role];
+        L[a.team][a.role] = L[b.team][b.role];
+        L[b.team][b.role] = tmp;
+        break;
+      }
       case 'timeout': {
         if (state.phase !== 'bidding' || !state.deadline || now < state.deadline) return fail('Not timed out');
         sell(state, now, true);
@@ -192,7 +213,55 @@
   const bestRating = (p) => Math.max(...E.ROLES.map((r) => p.ratings[r]));
   const teamPower = (state, t) => state.teams[t].players.reduce((s, x) => s + bestRating(playerById(state, x.id)), 0);
 
+  // Each team's own players on the lanes that give the most stars (5! layouts, so just try them all).
+  function bestLanes(state) {
+    const lanes = {};
+    for (const t of TEAMS) {
+      const ps = state.teams[t].players.map((x) => playerById(state, x.id));
+      let best = null, bestSum = -1;
+      const cur = [];
+      (function go(i, used, sum) {
+        if (i === E.ROLES.length) {
+          if (sum > bestSum) { bestSum = sum; best = cur.slice(); }
+          return;
+        }
+        ps.forEach((p, j) => {
+          if (used & (1 << j)) return;
+          cur[i] = p.id;
+          go(i + 1, used | (1 << j), sum + p.ratings[E.ROLES[i]]);
+        });
+      })(0, 0, 0);
+      lanes[t] = {};
+      E.ROLES.forEach((r, i) => (lanes[t][r] = best ? best[i] : null));
+    }
+    return lanes;
+  }
+
+  const laneStars = (state, t) =>
+    E.ROLES.reduce((s, r) => {
+      const p = playerById(state, state.lanes[t][r]);
+      return s + (p ? p.ratings[r] : 0);
+    }, 0);
+
+  // Team a player was bought by (or captains), so the lanes view can mark players traded across.
+  const boughtBy = (state, id) => TEAMS.find((t) => state.teams[t].players.some((x) => x.id === id)) || null;
+
+  function lanesSummary(state) {
+    const lines = [];
+    for (const t of TEAMS) {
+      lines.push('**' + state.teamNames[t] + '** - ' + laneStars(state, t) + ' stars');
+      for (const r of E.ROLES) {
+        const p = playerById(state, state.lanes[t][r]);
+        lines.push('  ' + r.padEnd(3) + '  ' + (p ? p.name + '  ' + '★'.repeat(Math.floor(p.ratings[r])) + (p.ratings[r] % 1 ? '½' : '') : '-'));
+      }
+    }
+    const a = laneStars(state, 'A'), b = laneStars(state, 'B');
+    lines.push('Estimated: ' + state.teamNames.A + ' ' + Math.round(E.winChance(a, b) * 100) + '% - ' + Math.round(E.winChance(b, a) * 100) + '% ' + state.teamNames.B);
+    return lines.join('\n');
+  }
+
   function summary(state) {
+    if (state.lanes) return lanesSummary(state);
     const lines = [];
     for (const t of TEAMS) {
       lines.push('**' + state.teamNames[t] + '** - spent ' + spent(state, t) + '/' + state.settings.tokens + ' tokens');
@@ -207,5 +276,6 @@
     TEAMS, TEAM_SIZE, DEFAULT_SETTINGS,
     normalizeSettings, createAuction, apply,
     playerById, slotsLeft, maxBid, spent, teamPower, summary,
+    bestLanes, laneStars, boughtBy,
   };
 });

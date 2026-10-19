@@ -208,8 +208,15 @@
   const getHistory = () => LS.get("history", []);
   function saveToHistory(state, mode) {
     const h = getHistory();
-    if (h.some((x) => x.id === state.id && x.finishedAt === state.finishedAt))
+    const old = h.find(
+      (x) => x.id === state.id && x.finishedAt === state.finishedAt,
+    );
+    if (old) {
+      // already saved: keep later changes (an auction's lanes) up to date quietly
+      old.state = state;
+      LS.set("history", h);
       return;
+    }
     h.unshift({ id: state.id, finishedAt: state.finishedAt, mode, state });
     LS.set("history", h.slice(0, 200));
     toast("Draft saved to history", "ok");
@@ -1779,6 +1786,8 @@
     let spinning = false,
       spinTimer = null,
       rotation = 0;
+    let showLanes = true,
+      laneSel = null; // {team, role} picked first when swapping two lanes
     const timer = setInterval(tick, 250);
     const readOnly = ctx.mode === "view";
 
@@ -1895,7 +1904,10 @@
             <div class="vs">${coin(AU.spent(s, t))}</div><div class="small muted">spent · ${s.teams[t].tokens} left</div>
             <div class="small muted" style="margin-top:6px">Best-role stars: ${AU.teamPower(s, t)}★</div></div>`).join("")}</div>
           <div class="row" style="justify-content:center;margin-top:14px">
-            <button class="btn gold" data-act="copy">Copy teams for Discord</button>
+            ${s.lanes ? '<button class="btn gold" data-act="show-lanes">Show lanes</button>' : readOnly ? "" : '<button class="btn gold big" data-act="lanes">⚔ Enhanced mode: assign lanes</button>'}
+          </div>
+          <div class="row" style="justify-content:center;margin-top:10px">
+            <button class="btn" data-act="copy">Copy teams for Discord</button>
             ${readOnly ? "" : '<a class="btn primary" href="#/setup/auction">New auction</a>'}
           </div>`;
       }
@@ -1944,8 +1956,102 @@
       );
     }
 
+    /* ---------- enhanced mode: lanes after the auction ---------- */
+
+    const laneStarsOf = (t) => AU.laneStars(state, t);
+    // Stars of both teams if the players in lanes a and b swapped places.
+    function swapStars(a, b) {
+      const L = state.lanes,
+        rt = (t, r, id) => {
+          const p = AU.playerById(state, id);
+          return p ? p.ratings[r] : 0;
+        };
+      const st = { A: laneStarsOf("A"), B: laneStarsOf("B") };
+      const pa = L[a.team][a.role],
+        pb = L[b.team][b.role];
+      st[a.team] += rt(a.team, a.role, pb) - rt(a.team, a.role, pa);
+      st[b.team] += rt(b.team, b.role, pa) - rt(b.team, b.role, pb);
+      return st;
+    }
+
+    function laneSlot(t, r) {
+      const s = state,
+        id = s.lanes[t][r],
+        p = AU.playerById(s, id);
+      const side = t === "A" ? "blue" : "red";
+      const sel = laneSel && laneSel.team === t && laneSel.role === r;
+      let hint = "";
+      if (laneSel && !sel) {
+        const st = swapStars(laneSel, { team: t, role: r });
+        const mine = laneSel.team,
+          d = st[mine] - laneStarsOf(mine);
+        const wr = Math.round(E.winChance(st[mine], st[E.other(mine)]) * 100);
+        hint = `<div class="hint ${d >= 0 ? "ok" : "bad"}">${laneSel.team === t ? "swap" : "trade"} · ${d >= 0 ? "+" : ""}${d}★ · ${esc(s.teamNames[mine])} ${wr}%</div>`;
+      }
+      const from = id && AU.boughtBy(s, id);
+      const traded = from && from !== t ? ` <span class="badge" title="Bought by ${tname(from)}">from ${tname(from)}</span>` : "";
+      const off =
+        p && bestRole(p) !== r && p.ratings[bestRole(p)] > p.ratings[r]
+          ? `<div class="small muted">best ${bestRole(p)} ${p.ratings[bestRole(p)]}★</div>`
+          : "";
+      const isCap = id && s.captains[t].playerId === id;
+      const cls = `slot ln-slot ${side} filled${readOnly ? "" : " swappable"}${sel ? " swap-sel" : ""}${laneSel && !sel ? " drop-ok" : ""}`;
+      return `<div class="ln-row ${side}">${roleTag(r)}
+        <div class="${cls}" data-lteam="${t}" data-lrole="${r}"${readOnly ? "" : ' draggable="true"'}>
+          <div class="who"><div class="pn">${p ? esc(p.name) : "?"}${isCap ? '<span class="cap">♛</span>' : ""}${traded}</div>${p ? stars(p.ratings[r]) : ""}${off}${hint}</div>
+          <div class="sv">${p ? p.ratings[r] : 0}</div>
+        </div></div>`;
+    }
+
+    function drawLanes() {
+      const s = state;
+      const a = laneStarsOf("A"),
+        b = laneStarsOf("B"),
+        p = E.winChance(a, b);
+      const team = (t) => `<div class="panel au-team ${t === "A" ? "blue" : "red"}">
+          <div class="au-head">
+            <div class="tn">${tname(t)}</div>
+            <div class="tokens">${t === "A" ? a : b}★</div>
+          </div>
+          <div class="small muted">Estimated win ${Math.round(E.winChance(t === "A" ? a : b, t === "A" ? b : a) * 100)}%</div>
+          <div class="ln-list">${ROLES.map((r) => laneSlot(t, r)).join("")}</div>
+        </div>`;
+      $app.innerHTML = `<div class="au-page">
+        <div class="row" style="margin-bottom:12px">
+          <h2 style="margin:0">⚔ Lanes</h2>
+          <span class="badge gold">enhanced mode</span>
+          <span class="grow"></span>
+          ${readOnly ? "" : `<button class="btn small" data-act="undo" ${extra.canUndo ? "" : "disabled"}>Undo</button>`}
+        </div>
+        <div class="panel">
+          <div class="meter"><div class="a" style="width:${(p * 100).toFixed(1)}%"></div><div class="b"></div></div>
+          <div class="meter-lbl"><span><b>${tname("A")}</b> ${a}★ · ${Math.round(p * 100)}%</span><span>${Math.round((1 - p) * 100)}% · ${b}★ <b>${tname("B")}</b></span></div>
+          <p class="small muted" style="margin-top:10px">Difference: ${Math.abs(a - b)}★${
+            readOnly ? "" : " · Click (or drag) a player, then another one to swap them: inside a team to change lanes, across teams to trade."
+          }</p>
+        </div>
+        <div class="ln-grid">${team("A")}${team("B")}</div>
+        <div class="row" style="justify-content:center;margin-top:14px">
+          ${readOnly ? "" : '<button class="btn" data-act="auto-lanes">Auto-assign best lanes</button>'}
+          <button class="btn gold" data-act="copy">Copy lineup for Discord</button>
+          <button class="btn" data-act="hide-lanes">Auction results</button>
+          ${readOnly ? "" : '<a class="btn primary" href="#/setup/auction">New auction</a>'}
+        </div>
+      </div>`;
+    }
+
+    function swapLanes(a, b) {
+      laneSel = null;
+      if (a.team === b.team && a.role === b.role) return draw();
+      ctx.act({ type: "swapLane", a, b });
+    }
+
     function draw() {
       const s = state;
+      if (s.phase === "done" && s.lanes && showLanes && !spinning) {
+        document.title = s.teamNames.A + " vs " + s.teamNames.B + " · Lanes";
+        return drawLanes();
+      }
       document.title = s.teamNames.A + " vs " + s.teamNames.B + " · Auction";
       $app.innerHTML = `<div class="au-page">
         <div class="row" style="margin-bottom:12px">
@@ -1971,14 +2077,55 @@
       if (ctx.now() >= state.deadline && ctx.onTick) ctx.onTick();
     }
 
+    const laneOf = (el) => ({ team: el.dataset.lteam, role: el.dataset.lrole });
+    $app.ondragstart = (e) => {
+      const el = e.target.closest && e.target.closest("[data-lteam]");
+      if (!el || readOnly) return;
+      laneSel = laneOf(el);
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", laneSel.team + laneSel.role);
+    };
+    $app.ondragend = () => {
+      if (!laneSel) return;
+      laneSel = null; // dropped outside a lane
+      draw();
+    };
+    $app.ondragover = (e) => {
+      if (laneSel && e.target.closest("[data-lteam]")) e.preventDefault();
+    };
+    $app.ondrop = (e) => {
+      const el = e.target.closest("[data-lteam]");
+      if (!el || !laneSel) return;
+      e.preventDefault();
+      swapLanes(laneSel, laneOf(el));
+    };
+
     $app.onclick = (e) => {
+      const lane = !readOnly && e.target.closest("[data-lteam]");
+      if (lane) {
+        if (!laneSel) {
+          laneSel = laneOf(lane);
+          return draw();
+        }
+        return swapLanes(laneSel, laneOf(lane));
+      }
       const b = e.target.closest("[data-act]");
       if (!b || spinning) return;
       const act = b.dataset.act,
         t = b.dataset.team;
       if (act === "copy") return copy(AU.summary(state));
+      if (act === "show-lanes" || act === "hide-lanes") {
+        showLanes = act === "show-lanes";
+        laneSel = null;
+        return draw();
+      }
       if (readOnly) return;
       if (act === "undo") return ctx.undo();
+      if (act === "lanes" || act === "auto-lanes") {
+        showLanes = true;
+        laneSel = null;
+        return ctx.act({ type: "autoLanes" });
+      }
       if (act === "spin") return ctx.act({ type: "spin", r: Math.random() });
       if (act === "pass") return ctx.act({ type: "pass", team: t });
       if (act === "bid") return ctx.act({ type: "bid", team: t, amount: +b.dataset.amount });
@@ -1996,6 +2143,7 @@
       destroy() {
         clearInterval(timer);
         clearTimeout(spinTimer);
+        $app.ondragstart = $app.ondragend = $app.ondragover = $app.ondrop = null;
       },
     };
   }

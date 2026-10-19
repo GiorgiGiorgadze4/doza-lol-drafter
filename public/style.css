@@ -428,3 +428,14 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .au-bids span { font-size: 13px; padding: 2px 8px; }
 .au-page .final .vs { font-size: 34px; }
 .au-page .lobby-cap .tn { font-size: 23px; }
+
+/* Auction enhanced mode: lanes */
+.ln-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 800px) { .ln-grid { grid-template-columns: 1fr; } }
+.ln-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.ln-row { display: flex; align-items: center; gap: 10px; }
+.ln-row.red { flex-direction: row-reverse; }
+.ln-row > .role { min-width: 44px; text-align: center; }
+.ln-row .slot { flex: 1; }
+.ln-slot { user-select: none; }
+.ln-slot .pn .badge { font-size: 10px; font-weight: 600; margin: 0 4px; vertical-align: middle; }
