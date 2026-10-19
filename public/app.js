@@ -1655,7 +1655,38 @@
   /* =========================================================
    * Auction drafter (hot-seat: both captains bid on one screen)
    * ======================================================= */
-  const SPIN_MS = 4200;
+  // Each spin rolls its own feel so no two look alike: duration, number of turns, easing curve
+  // and where in the winning slice it stops (dead centre, anywhere, or a hair past the divider).
+  const SPIN_EASES = [
+    "cubic-bezier(.12,.7,.15,1)", // the classic
+    "cubic-bezier(.2,.85,.25,1)", // quick brake
+    "cubic-bezier(.05,.6,.02,1)", // long slow crawl at the end
+    "cubic-bezier(.3,.6,.1,1)", // lazy start
+  ];
+  function spinPlan() {
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const roll = Math.random();
+    // fraction of the slice from its centre to the edge (0 = centre, 1 = on the divider)
+    let land, ease;
+    if (roll < 0.3) {
+      // nail-biter: creeps over the line and stops right next to it
+      land = rnd(0.88, 0.97);
+      ease = Math.random() < 0.6 ? SPIN_EASES[2] : SPIN_EASES[0];
+    } else if (roll < 0.5) {
+      land = rnd(0, 0.15); // dead centre
+      ease = SPIN_EASES[Math.floor(Math.random() * SPIN_EASES.length)];
+    } else {
+      land = rnd(0.15, 0.85);
+      ease = SPIN_EASES[Math.floor(Math.random() * SPIN_EASES.length)];
+    }
+    const near = land > 0.85;
+    return {
+      land: land * (Math.random() < 0.5 ? -1 : 1),
+      turns: Math.floor(rnd(4, 8)),
+      ms: Math.round(near ? rnd(5200, 6800) : rnd(3600, 5600)),
+      ease,
+    };
+  }
   // [rim, hub] shade pairs; each slice is a radial gradient from the darker hub colour out to the rim colour
   const WHEEL_COLORS = [
     ["#2f7fc0", "#123553"],
@@ -1763,30 +1794,30 @@
       const spun =
         extra.spun && state.lastSpin && (!prevSpin || prevSpin.n !== state.lastSpin.n);
       draw();
-      if (spun) startSpin();
+      if (spun) startSpin(typeof extra.spun === "object" ? extra.spun : spinPlan());
     }
 
-    function startSpin() {
+    function startSpin(plan) {
       const ls = state.lastSpin,
         n = ls.wheel.length,
         seg = 360 / n;
-      // land the chosen slice under the pointer, with a few full turns and a random offset inside the slice
-      const inSlice = (Math.random() - 0.5) * seg * 0.7;
+      // land the chosen slice under the pointer, `plan.land` of the way from its centre to an edge
+      const inSlice = n > 1 ? (plan.land * seg) / 2 : 0;
       const target = 360 - ((ls.index + 0.5) * seg + inSlice);
       spinning = true;
       draw(); // wheel drawn at its old angle first, then turned so the transition runs
-      rotation += 360 * 5 + ((target - (rotation % 360) + 360) % 360);
+      rotation += 360 * plan.turns + ((target - (rotation % 360) + 360) % 360);
       const el = qs(".wheel-rot");
       if (el) {
         void el.getBoundingClientRect();
-        el.style.transition = `transform ${SPIN_MS}ms cubic-bezier(.12,.7,.15,1)`;
+        el.style.transition = `transform ${plan.ms}ms ${plan.ease}`;
         el.style.transform = `rotate(${rotation}deg)`;
       }
       clearTimeout(spinTimer);
       spinTimer = setTimeout(() => {
         spinning = false;
         draw();
-      }, SPIN_MS + 150);
+      }, plan.ms + 150);
     }
 
     function wheelHtml() {
@@ -1869,14 +1900,15 @@
           </div>`;
       }
       const ls = s.lastSpin;
+      // everything under the wheel sits in .au-below, which reserves room so the panel doesn't jump between phases
       if (spinning)
-        return `${wheelHtml()}<div class="au-status">Spinning…</div>`;
+        return `${wheelHtml()}<div class="au-below"><div class="au-status">Spinning…</div></div>`;
       if (s.phase === "bidding") {
         const lot = s.lot,
           p = AU.playerById(s, lot.playerId);
         const left = s.deadline ? Math.max(0, Math.ceil((s.deadline - ctx.now()) / 1000)) : null;
         return `${wheelHtml()}
-          <div class="au-lot">
+          <div class="au-below au-lot">
             <div class="small muted">Lot ${lot.n} · nominated by ${tname(lot.nominator)}</div>
             <div class="au-player">${esc(p.name)}</div>
             ${ratingsMini(p)}
@@ -1889,10 +1921,12 @@
       const last = s.log[s.log.length - 1];
       const nom = s.teams[s.nominator].players.length < AU.TEAM_SIZE ? s.nominator : E.other(s.nominator);
       return `${wheelHtml()}
-        ${last ? `<div class="au-status">${pname(last.playerId)} → <b>${tname(last.team)}</b> for ${coin(last.price)}${last.auto && last.bids === 1 ? ' <span class="badge">auto</span>' : ""}</div>` : ""}
-        <div style="text-align:center;margin-top:10px">
-          ${readOnly ? "" : `<button class="btn gold big" data-act="spin">Spin the wheel</button>`}
-          <div class="small muted" style="margin-top:6px">${tname(nom)} nominates and opens at ${coin(1)} · ${s.queue.length} player${s.queue.length === 1 ? "" : "s"} left</div>
+        <div class="au-below">
+          ${last ? `<div class="au-status">${pname(last.playerId)} → <b>${tname(last.team)}</b> for ${coin(last.price)}${last.auto && last.bids === 1 ? ' <span class="badge">auto</span>' : ""}</div>` : ""}
+          <div style="text-align:center;margin-top:10px">
+            ${readOnly ? "" : `<button class="btn gold big" data-act="spin">Spin the wheel</button>`}
+            <div class="small muted" style="margin-top:6px">${tname(nom)} nominates and opens at ${coin(1)} · ${s.queue.length} player${s.queue.length === 1 ? "" : "s"} left</div>
+          </div>
         </div>`;
     }
 
@@ -1986,8 +2020,9 @@
         const r = AU.apply(view.state, action, Date.now());
         if (!r.ok) return toast(r.error, "err");
         // the bid clock starts once the wheel has stopped
-        if (action.type === "spin" && r.state.deadline) r.state.deadline += SPIN_MS;
-        commit(r.state, { spun: action.type === "spin" });
+        const plan = action.type === "spin" ? spinPlan() : null;
+        if (plan && r.state.deadline) r.state.deadline += plan.ms;
+        commit(r.state, { spun: plan });
       },
       undo() {
         const prev = history.pop();
