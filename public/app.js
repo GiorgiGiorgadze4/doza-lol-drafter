@@ -2,6 +2,7 @@
 (function () {
   "use strict";
   const E = window.DraftEngine;
+  const AU = window.AuctionEngine;
   const { ROLES, ROLE_NAMES } = E;
   const $app = document.getElementById("app");
 
@@ -191,11 +192,13 @@
       },
       selected: [], // ids of the players in this draft (captains included), saved with the setup
       settings: Object.assign({}, E.DEFAULT_SETTINGS),
+      auction: Object.assign({}, AU.DEFAULT_SETTINGS), // auction drafter: tokens per captain, bid timer
     };
   }
   function getSetup() {
     const s = Object.assign(defaultSetup(), LS.get("setup", {}));
     s.settings = Object.assign({}, E.DEFAULT_SETTINGS, s.settings);
+    s.auction = Object.assign({}, AU.DEFAULT_SETTINGS, s.auction);
     return s;
   }
   const setSetup = (s) => LS.set("setup", s);
@@ -241,7 +244,7 @@
       case "players":
         return viewPlayers();
       case "setup":
-        return viewSetup();
+        return viewSetup(parts[1] === "auction" ? "auction" : "star");
       case "history":
         return parts[1] != null ? viewHistoryItem(+parts[1]) : viewHistory();
       case "rules":
@@ -263,11 +266,22 @@
     $app.innerHTML = `
       <section class="hero">
         <h1>Captain Draft</h1>
-        <p>Two captains draft 10 players one by one. Every pick is a player <b>and</b> a role, worth that player's star rating on it. Each team has a star cap, so the teams stay balanced.</p>
-        <div class="row" style="justify-content:center">
-          <a class="btn gold big" href="#/setup">New draft</a>
-          <a class="btn big" href="#/players">Manage players</a>
+        <p>Pick how the two captains build their teams from the 10 players in today's game.</p>
+        <div class="mode-cards">
+          <a class="mode-card" href="#/setup">
+            <div class="mi">★</div>
+            <h3>Star drafter</h3>
+            <p>Captains take turns picking a player <b>and</b> a role, worth that player's star rating on it. A max star limit per team keeps it balanced.</p>
+            <span class="btn gold">New star draft</span>
+          </a>
+          <a class="mode-card" href="#/setup/auction">
+            <div class="mi"><i class="coin"></i></div>
+            <h3>Auction drafter</h3>
+            <p>Each captain gets the same number of tokens. A wheel picks a random player, captains bid on them one at a time, and the highest bid wins. Roles don't matter.</p>
+            <span class="btn gold">New auction</span>
+          </a>
         </div>
+        <div class="row" style="justify-content:center;margin-top:14px"><a class="btn" href="#/players">Manage players</a></div>
       </section>
       <div class="panel">
         <h2>Your drafts</h2>
@@ -278,6 +292,7 @@
                 ([id, l]) => `
             <div class="list-item">
               <span class="badge gold">${l.state.phase === "done" ? "Done" : "In progress"}</span>
+              <span class="badge">${l.state.kind === "auction" ? '<i class="coin"></i> Auction' : "★ Star"}</span>
               <div class="grow"><b>${esc(l.state.teamNames.A)}</b> vs <b>${esc(l.state.teamNames.B)}</b>
                 <div class="small muted">${fmtDate(l.state.createdAt)} · ${l.state.phase}</div></div>
               <a class="btn small" href="#/local/${id}">Open</a>
@@ -561,33 +576,15 @@
    * Setup (choose 10 + captains + rules)
    * ======================================================= */
   const DRAFT_SIZE = 10;
-  function viewSetup() {
+  function viewSetup(mode) {
+    const isAuc = mode === "auction";
     const setup = getSetup();
     const pool = getPool();
     let search = "";
     const st = setup.settings;
+    const auc = setup.auction;
 
-    $app.innerHTML = `
-      <div class="grid2" style="align-items:start">
-        <div class="panel">
-          <div class="row" style="margin-bottom:10px">
-            <h2 style="margin:0">Roster</h2>
-            <span class="badge" id="rcount"></span>
-            <span class="grow"></span>
-            <input id="search" placeholder="Search…" style="width:160px">
-          </div>
-          <p class="small muted">Click players to pick the ${DRAFT_SIZE} who play (captains count and are always in). After you start, captains take turns dragging them into their team.</p>
-          <div class="row" style="margin-bottom:8px"><button class="btn small" data-act="clear">Clear selection</button></div>
-          <div class="pick-pool" id="roster"></div>
-          <p class="small muted" style="margin-top:10px">Missing someone? Add them on <a href="#/players">Players</a>.</p>
-        </div>
-        <div>
-          <div class="panel">
-            <h2>Teams &amp; captains</h2>
-            <label class="check" style="margin-bottom:12px"><input type="checkbox" data-set="captainsArePlayers" ${st.captainsArePlayers ? "checked" : ""}> Captains play too (they start on their main role)</label>
-            <div class="grid2" id="caps"></div>
-          </div>
-          <div class="panel">
+    const starRules = `
             <h2>Rules</h2>
             <div class="fields">
               <label class="field">Min role rating
@@ -600,8 +597,48 @@
                 <input type="number" min="0" max="600" data-set="pickTimer" value="${st.pickTimer}">
                 <span class="hint">0 = no timer. When time runs out, the best legal pick is made</span></label>
             </div>
-            <p class="small muted" style="margin:12px 0 0">After the last pick, the draft only counts once both captains lock in. Until then either can cancel and keep changing their team.</p>
+            <p class="small muted" style="margin:12px 0 0">After the last pick, the draft only counts once both captains lock in. Until then either can cancel and keep changing their team.</p>`;
+    const auctionRules = `
+            <h2>Auction rules</h2>
+            <div class="fields">
+              <label class="field">Tokens per captain
+                <input type="number" min="${AU.TEAM_SIZE}" max="1000" data-auc="tokens" value="${auc.tokens}">
+                <span class="hint">Both captains start with the same amount</span></label>
+              <label class="field">Bid timer (s)
+                <input type="number" min="0" max="300" data-auc="bidTimer" value="${auc.bidTimer}">
+                <span class="hint">0 = no timer. When time runs out, the team that has to answer passes</span></label>
+            </div>
+            <ul class="small muted" style="margin:12px 0 0;padding-left:18px">
+              <li>A wheel picks a random unsold player. Teams take turns nominating, and the nominating team opens at <b>1 token</b>.</li>
+              <li>The other team raises or passes, back and forth, until someone passes. The highest bid wins the player.</li>
+              <li>A team keeps 1 token for each other open slot, so it can always finish its team. A full team stops bidding and the other team gets the rest for 1 token each.</li>
+            </ul>`;
+
+    $app.innerHTML = `
+      <div class="mode-tabs">
+        <a href="#/setup" class="${isAuc ? "" : "on"}">★ Star drafter</a>
+        <a href="#/setup/auction" class="${isAuc ? "on" : ""}"><i class="coin"></i> Auction drafter</a>
+      </div>
+      <div class="grid2" style="align-items:start">
+        <div class="panel">
+          <div class="row" style="margin-bottom:10px">
+            <h2 style="margin:0">Roster</h2>
+            <span class="badge" id="rcount"></span>
+            <span class="grow"></span>
+            <input id="search" placeholder="Search…" style="width:160px">
           </div>
+          <p class="small muted">Click players to pick the ${DRAFT_SIZE} who play (captains count and are always in). ${isAuc ? "After you start, everyone except the captains goes on the auction wheel." : "After you start, captains take turns dragging them into their team."}</p>
+          <div class="row" style="margin-bottom:8px"><button class="btn small" data-act="clear">Clear selection</button></div>
+          <div class="pick-pool" id="roster"></div>
+          <p class="small muted" style="margin-top:10px">Missing someone? Add them on <a href="#/players">Players</a>.</p>
+        </div>
+        <div>
+          <div class="panel">
+            <h2>Teams &amp; captains</h2>
+            <label class="check" style="margin-bottom:12px"><input type="checkbox" data-set="captainsArePlayers" ${st.captainsArePlayers ? "checked" : ""}> Captains play too (${isAuc ? "they join their own team for free" : "they start on their main role"})</label>
+            <div class="grid2" id="caps"></div>
+          </div>
+          <div class="panel">${isAuc ? auctionRules : starRules}</div>
           <div class="panel" id="preview"></div>
         </div>
       </div>`;
@@ -691,12 +728,16 @@
           },
         },
         teamNames: { A: setup.teamNames.A, B: setup.teamNames.B },
-        settings: Object.assign({}, st, {
-          noCap: true,
-          pickOrder: "alternate",
-        }), // one pick each, A B A B…
+        settings: isAuc
+          ? Object.assign({}, auc)
+          : Object.assign({}, st, {
+              noCap: true,
+              pickOrder: "alternate",
+            }), // one pick each, A B A B…
       };
     }
+    const create = (opts) =>
+      isAuc ? AU.createAuction(opts) : E.createDraft(opts);
 
     function drawPreview() {
       const el = qs("#preview");
@@ -719,7 +760,7 @@
         err = 'Choose both captains (or untick "Captains play too").';
       else {
         try {
-          s = E.createDraft(Object.assign(buildOpts(), { firstPick: "A" }));
+          s = create(Object.assign(buildOpts(), { firstPick: "A" }));
         } catch (e) {
           err = e.message;
         }
@@ -729,7 +770,16 @@
         ${
           err
             ? `<div class="alert err">${esc(err)}</div>`
-            : `
+            : isAuc
+              ? `
+        <div class="stat-grid">
+          <div class="stat"><div class="v">${n}</div><div class="k">Playing</div></div>
+          <div class="stat"><div class="v">${s.queue.length}</div><div class="k">On the wheel</div></div>
+          <div class="stat"><div class="v">${s.settings.tokens}</div><div class="k">Tokens each</div></div>
+          <div class="stat"><div class="v">${pool.length - n}</div><div class="k">Sit out</div></div>
+        </div>
+        <div class="alert ok small" style="margin-top:12px">Each team buys ${AU.slotsLeft(s, "A")} players. The first nominator is a coin flip.</div>`
+              : `
         <div class="stat-grid">
           <div class="stat"><div class="v">${n}</div><div class="k">Playing</div></div>
           <div class="stat"><div class="v">${s.order.length}</div><div class="k">Picks</div></div>
@@ -741,7 +791,7 @@
         <div class="alert ok small" style="margin-top:12px">No star cap: team totals and the win estimate update live as players are placed.</div>`
         }
         <div class="row" style="margin-top:14px">
-          <button class="btn gold" data-act="local" ${err ? "disabled" : ""}>Start draft</button>
+          <button class="btn gold" data-act="local" ${err ? "disabled" : ""}>${isAuc ? "Start auction" : "Start draft"}</button>
         </div>`;
     }
 
@@ -764,6 +814,10 @@
         save();
       } else if (t.dataset.set && t.type === "number") {
         st[t.dataset.set] = +t.value;
+        save();
+        drawPreview();
+      } else if (t.dataset.auc) {
+        auc[t.dataset.auc] = +t.value;
         save();
         drawPreview();
       }
@@ -823,7 +877,7 @@
       if (!b || b.dataset.act !== "local") return;
       let s;
       try {
-        s = E.createDraft(buildOpts());
+        s = create(buildOpts());
       } catch (err) {
         return toast(err.message, "err");
       }
@@ -1599,6 +1653,307 @@
   }
 
   /* =========================================================
+   * Auction drafter (hot-seat: both captains bid on one screen)
+   * ======================================================= */
+  const SPIN_MS = 4200;
+  const WHEEL_COLORS = ["#1d4f7a", "#5a2a3a", "#2c5a45", "#5a4a22", "#3c2f66", "#24505e"];
+  const coin = (n) => `${n}<i class="coin"></i>`;
+
+  // SVG wheel: one slice per name, slice `i` centred on angle (i + .5) * 360 / n, clockwise from the top.
+  function wheelSvg(names) {
+    const n = names.length,
+      R = 150,
+      seg = 360 / n;
+    const pt = (deg, r) => {
+      const a = ((deg - 90) * Math.PI) / 180;
+      return [R + r * Math.cos(a), R + r * Math.sin(a)];
+    };
+    const slices = names
+      .map((name, i) => {
+        const a0 = i * seg,
+          a1 = (i + 1) * seg,
+          mid = a0 + seg / 2;
+        const [x0, y0] = pt(a0, R - 2),
+          [x1, y1] = pt(a1, R - 2),
+          [tx, ty] = pt(mid, R * 0.6);
+        const path =
+          n === 1
+            ? `<circle cx="${R}" cy="${R}" r="${R - 2}" fill="${WHEEL_COLORS[0]}"/>`
+            : `<path d="M${R},${R} L${x0},${y0} A${R - 2},${R - 2} 0 ${seg > 180 ? 1 : 0} 1 ${x1},${y1} Z" fill="${WHEEL_COLORS[i % WHEEL_COLORS.length]}" stroke="#0a1428" stroke-width="2"/>`;
+        return `${path}<text x="${tx}" y="${ty}" transform="rotate(${mid - 90} ${tx} ${ty})" text-anchor="middle" dominant-baseline="middle">${esc(name.length > 12 ? name.slice(0, 11) + "…" : name)}</text>`;
+      })
+      .join("");
+    return `<svg viewBox="0 0 300 300" class="wheel-svg">${slices}<circle cx="${R}" cy="${R}" r="16" fill="#0a1428" stroke="var(--gold)" stroke-width="2"/></svg>`;
+  }
+
+  function createAuctionView(ctx) {
+    let state = null,
+      extra = {};
+    let spinning = false,
+      spinTimer = null,
+      rotation = 0;
+    const timer = setInterval(tick, 250);
+    const readOnly = ctx.mode === "view";
+
+    const pname = (id) => esc((AU.playerById(state, id) || {}).name || "?");
+    const tname = (t) => esc(state.teamNames[t]);
+    const ratingsMini = (p) =>
+      `<div class="mini">${ROLES.map((r) => `<span>${r} <b>${p.ratings[r]}</b></span>`).join("")}</div>`;
+
+    function update(next, ex) {
+      const prevSpin = state && state.lastSpin;
+      state = next;
+      extra = ex || {};
+      const spun =
+        extra.spun && state.lastSpin && (!prevSpin || prevSpin.n !== state.lastSpin.n);
+      draw();
+      if (spun) startSpin();
+    }
+
+    function startSpin() {
+      const ls = state.lastSpin,
+        n = ls.wheel.length,
+        seg = 360 / n;
+      // land the chosen slice under the pointer, with a few full turns and a random offset inside the slice
+      const inSlice = (Math.random() - 0.5) * seg * 0.7;
+      const target = 360 - ((ls.index + 0.5) * seg + inSlice);
+      spinning = true;
+      draw(); // wheel drawn at its old angle first, then turned so the transition runs
+      rotation += 360 * 5 + ((target - (rotation % 360) + 360) % 360);
+      const el = qs(".wheel-rot");
+      if (el) {
+        void el.getBoundingClientRect();
+        el.style.transition = `transform ${SPIN_MS}ms cubic-bezier(.12,.7,.15,1)`;
+        el.style.transform = `rotate(${rotation}deg)`;
+      }
+      clearTimeout(spinTimer);
+      spinTimer = setTimeout(() => {
+        spinning = false;
+        draw();
+      }, SPIN_MS + 150);
+    }
+
+    function wheelHtml() {
+      const s = state;
+      // While spinning or bidding show the wheel the lot was drawn from; otherwise the players still unsold.
+      const showLast =
+        s.lastSpin && (spinning || s.phase === "bidding" || s.phase === "done");
+      const ids = showLast ? s.lastSpin.wheel : s.queue;
+      if (!showLast) rotation = rotation - (rotation % 360);
+      const names = ids.map((id) => (AU.playerById(s, id) || {}).name || "?");
+      return `<div class="wheel">
+          <div class="wheel-pointer"></div>
+          <div class="wheel-rot" style="transform:rotate(${rotation}deg)">${names.length ? wheelSvg(names) : ""}</div>
+        </div>`;
+    }
+
+    function teamPanel(t) {
+      const s = state,
+        team = s.teams[t];
+      const lot = s.phase === "bidding" && !spinning ? s.lot : null;
+      const myTurn = lot && lot.turn === t;
+      const leading = lot && lot.high.team === t;
+      const max = AU.maxBid(s, t);
+      const rows = team.players
+        .map((x) => {
+          const p = AU.playerById(s, x.id);
+          return `<div class="au-row">
+            <div class="grow"><div class="nm">${esc(p.name)}${x.captain ? '<span class="cap">♛</span>' : ""}</div>${ratingsMini(p)}</div>
+            ${roleTag(bestRole(p))}
+            <div class="price">${x.captain ? '<span class="muted small">captain</span>' : coin(x.price)}</div>
+          </div>`;
+        })
+        .join("");
+      const empty = Array.from(
+        { length: AU.slotsLeft(s, t) },
+        () => '<div class="au-row empty">open slot</div>',
+      ).join("");
+      let controls = "";
+      if (lot && !readOnly) {
+        if (myTurn) {
+          const steps = [1, 2, 5].filter((d) => lot.high.amount + d <= max);
+          controls = `<div class="bid-box">
+            <div class="small">Your turn. Raise or pass (max bid ${coin(max)})</div>
+            <div class="row" style="margin-top:8px">
+              ${steps.map((d) => `<button class="btn primary" data-act="bid" data-team="${t}" data-amount="${lot.high.amount + d}">+${d} → ${lot.high.amount + d}</button>`).join("")}
+            </div>
+            <div class="row" style="margin-top:8px">
+              <input type="number" min="${lot.high.amount + 1}" max="${max}" value="${Math.min(max, lot.high.amount + 1)}" data-custom="${t}" style="width:80px">
+              <button class="btn" data-act="bid-custom" data-team="${t}">Bid</button>
+              <span class="grow"></span>
+              <button class="btn danger" data-act="pass" data-team="${t}">Pass</button>
+            </div>
+            <div class="small muted" style="margin-top:6px">Pass and ${tname(lot.high.team)} gets ${pname(lot.playerId)} for ${coin(lot.high.amount)}</div>
+          </div>`;
+        } else if (leading)
+          controls = `<div class="bid-box lead">Winning at ${coin(lot.high.amount)}. Waiting for ${tname(E.other(t))}…</div>`;
+      }
+      return `<div class="panel au-team ${t === "A" ? "blue" : "red"} ${myTurn ? "turn" : ""}">
+          <div class="au-head">
+            <div class="tn">${tname(t)}</div>
+            <div class="tokens">${coin(team.tokens)}<span class="small muted"> left</span></div>
+          </div>
+          <div class="small muted">Spent ${AU.spent(s, t)} · ${AU.slotsLeft(s, t)} slot${AU.slotsLeft(s, t) === 1 ? "" : "s"} open · max bid ${max}</div>
+          <div class="au-list">${rows}${empty}</div>
+          ${controls}
+        </div>`;
+    }
+
+    function centerHtml() {
+      const s = state;
+      if (s.phase === "done" && !spinning) {
+        return `<h2 style="text-align:center">Auction complete</h2>
+          <div class="final">${AU.TEAMS.map((t) => `<div class="lobby-cap"><div class="tn">${tname(t)}</div>
+            <div class="vs">${coin(AU.spent(s, t))}</div><div class="small muted">spent · ${s.teams[t].tokens} left</div>
+            <div class="small muted" style="margin-top:6px">Best-role stars: ${AU.teamPower(s, t)}★</div></div>`).join("")}</div>
+          <div class="row" style="justify-content:center;margin-top:14px">
+            <button class="btn gold" data-act="copy">Copy teams for Discord</button>
+            ${readOnly ? "" : '<a class="btn primary" href="#/setup/auction">New auction</a>'}
+          </div>`;
+      }
+      const ls = s.lastSpin;
+      if (spinning)
+        return `${wheelHtml()}<div class="au-status">Spinning…</div>`;
+      if (s.phase === "bidding") {
+        const lot = s.lot,
+          p = AU.playerById(s, lot.playerId);
+        const left = s.deadline ? Math.max(0, Math.ceil((s.deadline - ctx.now()) / 1000)) : null;
+        return `${wheelHtml()}
+          <div class="au-lot">
+            <div class="small muted">Lot ${lot.n} · nominated by ${tname(lot.nominator)}</div>
+            <div class="au-player">${esc(p.name)}</div>
+            ${ratingsMini(p)}
+            <div class="au-bid ${lot.high.team === "A" ? "blue" : "red"}">${coin(lot.high.amount)} <span class="small">${tname(lot.high.team)}</span></div>
+            <div class="small">${tname(lot.turn)} to answer${left != null ? ` · <b id="au-timer">${left}s</b>` : ""}</div>
+            <div class="au-bids">${lot.bids.map((b) => `<span class="${b.team === "A" ? "blue" : "red"}">${b.amount}</span>`).join("")}</div>
+          </div>`;
+      }
+      // spin phase
+      const last = s.log[s.log.length - 1];
+      const nom = s.teams[s.nominator].players.length < AU.TEAM_SIZE ? s.nominator : E.other(s.nominator);
+      return `${wheelHtml()}
+        ${last ? `<div class="au-status">${pname(last.playerId)} → <b>${tname(last.team)}</b> for ${coin(last.price)}${last.auto && last.bids === 1 ? ' <span class="badge">auto</span>' : ""}</div>` : ""}
+        <div style="text-align:center;margin-top:10px">
+          ${readOnly ? "" : `<button class="btn gold big" data-act="spin">Spin the wheel</button>`}
+          <div class="small muted" style="margin-top:6px">${tname(nom)} nominates and opens at ${coin(1)} · ${s.queue.length} player${s.queue.length === 1 ? "" : "s"} left</div>
+        </div>`;
+    }
+
+    function logHtml() {
+      const s = state;
+      return (
+        s.log
+          .slice()
+          .reverse()
+          .map(
+            (e) =>
+              `<div class="${e.team}">#${e.n} ${pname(e.playerId)} → <b>${tname(e.team)}</b> for ${coin(e.price)}${e.bids > 1 ? ` <span class="muted small">(${e.bids} bids)</span>` : ""}${e.auto ? ' <span class="badge">auto</span>' : ""}</div>`,
+          )
+          .join("") || '<span class="muted small">Nothing sold yet.</span>'
+      );
+    }
+
+    function draw() {
+      const s = state;
+      document.title = s.teamNames.A + " vs " + s.teamNames.B + " · Auction";
+      $app.innerHTML = `
+        <div class="row" style="margin-bottom:12px">
+          <h2 style="margin:0"><i class="coin"></i> Auction draft</h2>
+          <span class="badge">${s.settings.tokens} tokens each</span>
+          <span class="grow"></span>
+          ${readOnly ? "" : `<button class="btn small" data-act="undo" ${extra.canUndo && !spinning ? "" : "disabled"}>Undo</button>`}
+        </div>
+        <div class="au-grid">
+          ${teamPanel("A")}
+          <div class="panel au-center">${centerHtml()}</div>
+          ${teamPanel("B")}
+        </div>
+        <div class="panel"><h3>Sold</h3><div class="log">${logHtml()}</div></div>`;
+    }
+
+    function tick() {
+      if (!state || state.phase !== "bidding" || !state.deadline || spinning) return;
+      const el = qs("#au-timer");
+      const left = Math.max(0, Math.ceil((state.deadline - ctx.now()) / 1000));
+      if (el) el.textContent = left + "s";
+      if (ctx.now() >= state.deadline && ctx.onTick) ctx.onTick();
+    }
+
+    $app.onclick = (e) => {
+      const b = e.target.closest("[data-act]");
+      if (!b || spinning) return;
+      const act = b.dataset.act,
+        t = b.dataset.team;
+      if (act === "copy") return copy(AU.summary(state));
+      if (readOnly) return;
+      if (act === "undo") return ctx.undo();
+      if (act === "spin") return ctx.act({ type: "spin", r: Math.random() });
+      if (act === "pass") return ctx.act({ type: "pass", team: t });
+      if (act === "bid") return ctx.act({ type: "bid", team: t, amount: +b.dataset.amount });
+      if (act === "bid-custom") {
+        const inp = qs(`[data-custom="${t}"]`);
+        return ctx.act({ type: "bid", team: t, amount: +inp.value });
+      }
+    };
+
+    return {
+      update,
+      get state() {
+        return state;
+      },
+      destroy() {
+        clearInterval(timer);
+        clearTimeout(spinTimer);
+      },
+    };
+  }
+
+  function viewAuction(id) {
+    let history = getLocals()[id].history || [];
+    function persist(state) {
+      const l = getLocals();
+      l[id] = { state, history: history.slice(-40) };
+      setLocals(l);
+    }
+    function commit(next, ex) {
+      history.push(view.state);
+      persist(next);
+      view.update(next, Object.assign({ canUndo: true }, ex));
+      if (next.phase === "done") saveToHistory(next, "auction");
+    }
+    const ctx = {
+      mode: "local",
+      now: () => Date.now(),
+      act(action) {
+        const r = AU.apply(view.state, action, Date.now());
+        if (!r.ok) return toast(r.error, "err");
+        // the bid clock starts once the wheel has stopped
+        if (action.type === "spin" && r.state.deadline) r.state.deadline += SPIN_MS;
+        commit(r.state, { spun: action.type === "spin" });
+      },
+      undo() {
+        const prev = history.pop();
+        if (!prev) return;
+        const s = JSON.parse(JSON.stringify(prev));
+        if (s.deadline) s.deadline = Date.now() + s.settings.bidTimer * 1000;
+        persist(s);
+        view.update(s, { canUndo: history.length > 0 });
+      },
+      onTick() {
+        const r = AU.apply(view.state, { type: "timeout" }, Date.now());
+        if (r.ok) commit(r.state);
+      },
+    };
+    const s0 = getLocals()[id].state;
+    // Resuming an old auction: give the current bid a fresh clock instead of timing out straight away.
+    if (s0.deadline && s0.deadline < Date.now())
+      s0.deadline = Date.now() + s0.settings.bidTimer * 1000;
+    const view = createAuctionView(ctx);
+    view.update(s0, { canUndo: history.length > 0 });
+    cleanup = () => view.destroy();
+  }
+
+  /* =========================================================
    * Local hot-seat draft
    * ======================================================= */
   function viewLocal(id) {
@@ -1609,6 +1964,7 @@
         '<div class="panel"><h2>Local draft not found</h2><a class="btn" href="#/">Back</a></div>';
       return;
     }
+    if (rec.state.kind === "auction") return viewAuction(id);
     let history = rec.history || [];
     function persist(state) {
       const l = getLocals();
@@ -1673,8 +2029,17 @@
       <div class="list">${
         h
           .map((x, i) => {
-            const s = x.state,
-              a = E.teamStars(s, "A"),
+            const s = x.state;
+            if (s.kind === "auction")
+              return `<div class="list-item">
+          <span class="badge gold"><i class="coin"></i> auction</span>
+          <div class="grow"><b>${esc(s.teamNames.A)}</b> ${AU.spent(s, "A")}<i class="coin"></i> vs ${AU.spent(s, "B")}<i class="coin"></i> <b>${esc(s.teamNames.B)}</b>
+            <div class="small muted">${fmtDate(s.finishedAt)} · ${s.settings.tokens} tokens each</div></div>
+          <a class="btn small" href="#/history/${i}">View</a>
+          <button class="btn small" data-act="copy" data-i="${i}">Copy</button>
+          <button class="btn small danger" data-act="del" data-i="${i}">✕</button>
+        </div>`;
+            const a = E.teamStars(s, "A"),
               b = E.teamStars(s, "B");
             return `<div class="list-item">
           <span class="badge ${x.mode === "import" ? "blue" : "gold"}">${x.mode}</span>
@@ -1720,7 +2085,10 @@
       const hist = getHistory();
       if (b.dataset.act === "export")
         download("doza-history.json", JSON.stringify(hist, null, 2));
-      if (b.dataset.act === "copy") copy(E.summary(hist[+b.dataset.i].state));
+      if (b.dataset.act === "copy") {
+        const st = hist[+b.dataset.i].state;
+        copy(st.kind === "auction" ? AU.summary(st) : E.summary(st));
+      }
       if (b.dataset.act === "del") {
         hist.splice(+b.dataset.i, 1);
         LS.set("history", hist);
@@ -1739,7 +2107,7 @@
       location.hash = "#/history";
       return;
     }
-    const view = createDraftView({
+    const view = (x.state.kind === "auction" ? createAuctionView : createDraftView)({
       mode: "view",
       now: () => Date.now(),
       act() {},
@@ -1770,6 +2138,14 @@
         <li><b>Picks</b>: one player at a time, <b>alternating</b> (A B A B…). The first pick is a coin flip, and the other team gets <b>blue side</b>.</li>
         <li>Every pick is a <b>player + role</b>: drag the player onto an empty role slot on your side of the board (or tap the player, then the slot). The slot shows what the pick is worth and the new team total before you drop. At any time, without using a pick, a team can drag its players to another role, drop a roster player on one of its players to swap them in (the other one goes back to the roster), or drag a player back to the roster (that pick is given back at the end of the order). When the timer runs out, the highest-rated legal pick is made automatically.</li>
         <li><b>Lock in</b>: after the last pick the draft isn't final yet. Each captain can still change their team, then locks in. A lock-in can be cancelled until the other captain also locks in; once both are locked in, the draft is final.</li>
+      </ol>
+      <h2>Auction drafter</h2>
+      <ol>
+        <li>Choose the 10 players and both captains, and how many <b>tokens</b> each captain gets (20 by default). Captains join their own team for free; the other players are auctioned, so each team buys until it has 5. Roles don't matter.</li>
+        <li>A <b>wheel</b> picks a random unsold player. Teams take turns nominating (the first nominator is a coin flip), and the nominating team <b>opens at 1 token</b>.</li>
+        <li>The other team <b>raises or passes</b>, back and forth, until one of them passes. The highest bid buys the player and its tokens are spent.</li>
+        <li>A team must keep <b>1 token for each other open slot</b>, so it can always complete its team. When a team is full it stops bidding, and the other team gets the remaining players for 1 token each. A bid is also final straight away when the other team can't afford to raise.</li>
+        <li>With a bid timer, the team that has to answer passes when the time runs out. Undo takes back the last spin or bid.</li>
       </ol>
       <h2>Win estimate</h2>
       <p>The balance bar uses an Elo-style curve where each star of difference is worth about 7 percentage points near an even matchup. It's only a rough guide.</p>

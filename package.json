@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.js",
-    "test": "node test/engine.test.js"
+    "test": "node test/engine.test.js && node test/auction.test.js"
   },
   "license": "MIT"
 }
