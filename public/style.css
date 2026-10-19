@@ -53,6 +53,8 @@ p { margin: 0 0 .8em; }
 }
 .brand { display: flex; align-items: center; gap: 10px; font-family: Cinzel, serif; font-size: 18px; color: var(--gold2); letter-spacing: .08em; }
 .brand b { color: var(--gold); }
+.brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+.brand .motto { font-family: Georgia, serif; font-style: italic; font-size: 11px; letter-spacing: .02em; color: var(--muted); opacity: .85; }
 .topbar nav { display: flex; gap: 4px; flex-wrap: wrap; }
 .topbar nav a { padding: 6px 12px; border-radius: 6px; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 12px; letter-spacing: .08em; }
 .topbar nav a:hover { color: var(--gold2); }
