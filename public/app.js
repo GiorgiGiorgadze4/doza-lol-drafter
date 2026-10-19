@@ -1680,7 +1680,7 @@
           n === 1
             ? `<circle cx="${R}" cy="${R}" r="${R - 2}" fill="${WHEEL_COLORS[0]}"/>`
             : `<path d="M${R},${R} L${x0},${y0} A${R - 2},${R - 2} 0 ${seg > 180 ? 1 : 0} 1 ${x1},${y1} Z" fill="${WHEEL_COLORS[i % WHEEL_COLORS.length]}" stroke="#0a1428" stroke-width="2"/>`;
-        return `${path}<text x="${tx}" y="${ty}" transform="rotate(${mid - 90} ${tx} ${ty})" text-anchor="middle" dominant-baseline="middle">${esc(name.length > 12 ? name.slice(0, 11) + "…" : name)}</text>`;
+        return `${path}<text x="${tx}" y="${ty}" transform="rotate(${mid - 90} ${tx} ${ty})" text-anchor="middle" dominant-baseline="middle">${esc(name.length > 10 ? name.slice(0, 9) + "…" : name)}</text>`;
       })
       .join("");
     return `<svg viewBox="0 0 300 300" class="wheel-svg">${slices}<circle cx="${R}" cy="${R}" r="16" fill="#0a1428" stroke="var(--gold)" stroke-width="2"/></svg>`;
@@ -1856,7 +1856,7 @@
     function draw() {
       const s = state;
       document.title = s.teamNames.A + " vs " + s.teamNames.B + " · Auction";
-      $app.innerHTML = `
+      $app.innerHTML = `<div class="au-page">
         <div class="row" style="margin-bottom:12px">
           <h2 style="margin:0"><i class="coin"></i> Auction draft</h2>
           <span class="badge">${s.settings.tokens} tokens each</span>
@@ -1868,7 +1868,8 @@
           <div class="panel au-center">${centerHtml()}</div>
           ${teamPanel("B")}
         </div>
-        <div class="panel"><h3>Sold</h3><div class="log">${logHtml()}</div></div>`;
+        <div class="panel"><h3>Sold</h3><div class="log">${logHtml()}</div></div>
+      </div>`;
     }
 
     function tick() {

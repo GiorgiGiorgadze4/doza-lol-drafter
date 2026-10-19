@@ -343,7 +343,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 /* ---------- auction ---------- */
 /* drawn token coin (the coin emoji is missing from older emoji fonts) */
 .coin { display: inline-block; width: .78em; height: .78em; margin-left: .15em; vertical-align: -.06em; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff3c4, var(--star) 45%, #a4761f); box-shadow: inset 0 0 0 .07em #8a6418, 0 0 .3em #f3c24f55; }
-.au-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.au-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .au-grid > .panel { margin-top: 0; }
 @media (max-width: 1000px) { .au-grid { grid-template-columns: 1fr; } }
 .au-team { border-top: 3px solid var(--line2); }
@@ -363,11 +363,11 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .bid-box { margin-top: 12px; padding: 12px; border: 1px solid var(--gold-dim); border-radius: 8px; background: #c8aa6e10; }
 .bid-box.lead { border-color: var(--ok); background: #3ccf8e12; text-align: center; }
 .au-center { text-align: center; }
-.wheel { position: relative; width: min(300px, 80vw); aspect-ratio: 1; margin: 6px auto 0; }
+.wheel { position: relative; width: min(500px, 88vw); aspect-ratio: 1; margin: 6px auto 0; }
 .wheel-rot { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 3px var(--gold-dim), 0 0 30px #c8aa6e33; }
 .wheel-svg { width: 100%; height: 100%; display: block; }
-.wheel-svg text { fill: #fff; font: 600 13px Inter, system-ui, sans-serif; }
-.wheel-pointer { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); z-index: 2; width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-top: 22px solid var(--gold2); filter: drop-shadow(0 2px 3px #000); }
+.wheel-svg text { fill: #fff; font: 700 16px Inter, system-ui, sans-serif; paint-order: stroke; stroke: #0a142899; stroke-width: 2px; }
+.wheel-pointer { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); z-index: 2; width: 0; height: 0; border-left: 17px solid transparent; border-right: 17px solid transparent; border-top: 32px solid var(--gold2); filter: drop-shadow(0 2px 3px #000); }
 .au-status { margin-top: 12px; font-size: 15px; }
 .au-lot { margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .au-lot .mini { display: flex; gap: 8px; font-size: 12px; color: var(--muted); }
@@ -379,3 +379,31 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .au-bids span { font-size: 11px; padding: 1px 6px; border-radius: 99px; }
 .au-bids span.blue { background: var(--blue-bg); color: var(--blue); }
 .au-bids span.red { background: var(--red-bg); color: var(--red); }
+
+/* auction screen: everything about 25% larger than the rest of the app */
+.au-page { font-size: 17px; }
+.au-page h2 { font-size: 30px; }
+.au-page h3 { font-size: 22px; }
+.au-page .small { font-size: 15px; }
+.au-page .badge { font-size: 13px; padding: 3px 10px; }
+.au-page .btn { font-size: 16px; padding: 11px 20px; }
+.au-page .btn.small { font-size: 15px; padding: 7px 13px; }
+.au-page .btn.big { font-size: 19px; padding: 16px 36px; }
+.au-page .role { font-size: 13px; min-width: 46px; padding: 3px 7px; }
+.au-page input[type=number] { font-size: 17px; padding: 9px 10px; }
+.au-page .log { font-size: 16px; max-height: 280px; }
+.au-page .log div { padding: 6px 10px; }
+.au-head .tn { font-size: 23px; }
+.au-head .tokens { font-size: 32px; }
+.au-row { padding: 9px 12px; }
+.au-row .cap { font-size: 15px; }
+.au-row .mini { font-size: 12.5px; gap: 6px; }
+.au-row .price { font-size: 18px; min-width: 52px; }
+.au-row.empty { font-size: 15px; min-height: 46px; }
+.au-status { font-size: 19px; }
+.au-lot .mini { font-size: 15px; gap: 10px; }
+.au-player { font-size: 38px; }
+.au-bid { font-size: 40px; }
+.au-bids span { font-size: 13px; padding: 2px 8px; }
+.au-page .final .vs { font-size: 34px; }
+.au-page .lobby-cap .tn { font-size: 23px; }
