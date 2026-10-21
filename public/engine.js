@@ -18,6 +18,8 @@
  *  - Picks go one by one, alternating by default (A B A B ...; snake A B B A ... is optional); the team that picks first is always blue side.
  *  - Placed players can be moved / swapped between roles inside their own team at any time during
  *    the draft (no turn used, cap and feasibility still apply).
+ *  - Auto align: a team's placed players can be laid out in one go on the roles whose total hits the max stars per
+ *    team exactly (or comes closest); the UI steps through those layouts one per click and loops back to the first.
  *  - After the last pick both captains must lock in. Until both have, each can cancel their lock-in and keep
  *    rearranging; once both are locked in the draft is final.
  */
@@ -409,6 +411,77 @@
     return { ok: true, delta };
   }
 
+  // Star target auto align works toward: the max stars per team (the cap when there's no soft limit).
+  function alignTarget(state) {
+    return state.starLimit != null ? state.starLimit : state.cap;
+  }
+
+  // Lay out a team's placed players on its roles (layout = { TOP: id|null, ... }): same rules as moving them one by one.
+  function checkArrange(state, team, layout) {
+    if (state.phase !== 'swap' && state.phase !== 'draft') return { ok: false, reason: 'Can\'t rearrange now' };
+    if (!TEAMS.includes(team)) return { ok: false, reason: 'Unknown team' };
+    if (state.phase === 'swap' && state.ready[team]) return { ok: false, reason: 'Locked in (cancel the lock-in to change)' };
+    const slots = state.teams[team].slots;
+    const had = ROLES.map((r) => slots[r]).filter(Boolean).sort();
+    const got = ROLES.map((r) => layout && layout[r]).filter(Boolean).sort();
+    if (had.join() !== got.join()) return { ok: false, reason: 'Must use the same players' };
+    let total = 0;
+    for (const r of ROLES) {
+      if (!layout[r]) continue;
+      const v = playerById(state, layout[r]).ratings[r];
+      if (v < state.settings.minRoleRating) return { ok: false, reason: 'Rating below minimum' };
+      total += v;
+    }
+    if (state.cap != null && total > state.cap) return { ok: false, reason: 'Over star cap' };
+    if (state.phase === 'draft') {
+      const s = clone(state);
+      for (const r of ROLES) s.teams[team].slots[r] = layout[r] || null;
+      if (!stateFeasible(s)) return { ok: false, reason: 'Would make the draft impossible to finish' };
+    }
+    return { ok: true, total };
+  }
+
+  /*
+   * Auto align: every legal layout of a team's placed players whose total hits the star target exactly, or comes
+   * closest to it (both sides of it count as closest). Always in the same order, so the UI can step through them.
+   */
+  function alignVariants(state, team) {
+    const target = alignTarget(state);
+    if (target == null || !TEAMS.includes(team)) return [];
+    const slots = state.teams[team].slots;
+    const ps = ROLES.map((r) => slots[r]).filter(Boolean).map((id) => playerById(state, id));
+    if (!ps.length) return [];
+    const min = state.settings.minRoleRating;
+    const byDist = new Map();
+    const cur = {};
+    (function go(i, used, sum) {
+      if (i === ROLES.length) {
+        if (used !== (1 << ps.length) - 1) return;
+        if (state.cap != null && sum > state.cap) return;
+        const d = Math.abs(sum - target);
+        if (!byDist.has(d)) byDist.set(d, []);
+        byDist.get(d).push({ slots: Object.assign({}, cur), total: sum });
+        return;
+      }
+      const r = ROLES[i];
+      // leave the role open only while there are more roles left than players to place
+      if (ROLES.length - i > ps.length - popcount(used)) { cur[r] = null; go(i + 1, used, sum); }
+      ps.forEach((p, j) => {
+        if (used & (1 << j) || p.ratings[r] < min) return;
+        cur[r] = p.id;
+        go(i + 1, used | (1 << j), sum + p.ratings[r]);
+      });
+    })(0, 0, 0);
+    // closest tier first; mid-draft a tier can be all dead ends, then the next closest one is used
+    for (const d of [...byDist.keys()].sort((a, b) => a - b)) {
+      const ok = byDist.get(d).filter((v) => checkArrange(state, team, v.slots).ok);
+      if (ok.length) return ok;
+    }
+    return [];
+  }
+
+  function popcount(m) { let n = 0; for (; m; m &= m - 1) n++; return n; }
+
   // Swap a placed player for an unpicked roster player ("bench swap"). Any time during the draft or the final check,
   // either team, no pick used; the player who leaves goes back to the roster and can be picked by anyone.
   function checkBench(state, team, playerId, role) {
@@ -554,6 +627,13 @@
         logPush({ kind: slots[action.r1] ? 'swap' : 'move', team: t, r1: action.r1, r2: action.r2, playerId: slots[action.r2] });
         break;
       }
+      case 'arrange': {
+        const c = checkArrange(state, t, action.slots);
+        if (!c.ok) return fail(c.reason);
+        for (const r of ROLES) state.teams[t].slots[r] = action.slots[r] || null;
+        logPush({ kind: 'align', team: t, total: c.total });
+        break;
+      }
       case 'bench': {
         const c = checkBench(state, t, action.playerId, action.role);
         if (!c.ok) return fail(c.reason);
@@ -645,6 +725,7 @@
     bestAssignmentTotal, canComplete, computeCap,
     createDraft, apply, currentTeam,
     checkPick, checkCaptainLock, checkSwap, checkBench, checkRelease, legalPicks,
+    checkArrange, alignVariants, alignTarget,
     playerById, teamStars, openRoles, pool, unplaced, captainTeamOf,
     winChance, summary, limitLevel,
   };

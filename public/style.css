@@ -209,6 +209,7 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .budget .fill.full { background: linear-gradient(90deg, #a33a2a, var(--red)); }
 .budget .lbl { display: flex; justify-content: space-between; font-size: 12px; margin-top: 4px; color: var(--muted); }
 .team-banner.red .budget .lbl { flex-direction: row-reverse; }
+.team-banner .align-btn { margin-top: 8px; }
 .budget .lbl b { color: var(--gold2); font-size: 14px; }
 
 .clock { min-width: 220px; text-align: center; padding: 10px 18px; border-radius: var(--radius); background: linear-gradient(#0f1b2d, #07111f); border: 1px solid var(--gold-dim); display: flex; flex-direction: column; align-items: center; justify-content: center; }

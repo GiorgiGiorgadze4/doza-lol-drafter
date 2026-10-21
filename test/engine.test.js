@@ -48,6 +48,20 @@ for (let trial = 0; trial < 500; trial++) {
           assert(E.teamStars(s, t) <= s.cap, 'cap violated by move');
         }
       }
+      // auto align: every variant is legal, equally close to the target, and applying one keeps the draft finishable
+      if (Math.random() < 0.3) {
+        const t = E.TEAMS[Math.floor(Math.random() * 2)];
+        const vs = E.alignVariants(s, t);
+        if (E.openRoles(s, t).length < 5) assert(vs.length > 0, 'current layout is legal, so some variant must exist');
+        const d = vs.length && Math.abs(vs[0].total - E.alignTarget(s));
+        for (const v of vs) assert.strictEqual(Math.abs(v.total - E.alignTarget(s)), d, 'variants must be equally close');
+        if (vs.length) {
+          const r = E.apply(s, { type: 'arrange', team: t, slots: vs[vs.length - 1].slots });
+          assert(r.ok, r.error); s = r.state;
+          assert.strictEqual(E.teamStars(s, t), vs[vs.length - 1].total);
+          assert(E.teamStars(s, t) <= s.cap, 'cap violated by align');
+        }
+      }
       // random legal pick (more adversarial than auto-pick)
       const legal = E.legalPicks(s, E.currentTeam(s));
       assert(legal.length > 0, 'dead end: no legal pick');

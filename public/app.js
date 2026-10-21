@@ -996,6 +996,11 @@
                 : `<div class="lbl"><span>${totalHtml(s, t)}★ total${s.starLimit != null ? " / max " + s.starLimit + "★" : ""}</span><span>${E.openRoles(s, t).length} open</span></div>`
             }
           </div>
+          ${
+            canMove(t) && E.alignTarget(s) != null && E.openRoles(s, t).length < 5
+              ? `<button class="btn small align-btn" data-act="align" data-team="${t}" title="Lay out the team's players on the roles that hit ${E.alignTarget(s)}★ (or closest). Click again for the next layout.">⟳ Auto align ${E.alignTarget(s)}★</button>`
+              : ""
+          }
         </div>`;
     }
 
@@ -1067,6 +1072,20 @@
         return draw();
       }
       act({ type: "release", role: src.role }, src.team);
+    }
+
+    // Auto align: step to the layout after the current one among those closest to the star target, looping around.
+    function align(t) {
+      const vs = E.alignVariants(state, t);
+      if (!vs.length) return toast("No legal layout for this team", "err");
+      const slots = state.teams[t].slots;
+      const at = vs.findIndex((v) => ROLES.every((r) => (v.slots[r] || null) === slots[r]));
+      const i = (at + 1) % vs.length;
+      if (at === i) return toast(`Already the only layout closest to ${E.alignTarget(state)}★ (${vs[i].total}★)`);
+      ui.sel = null;
+      ui.swapSel = null;
+      toast(`Layout ${i + 1} of ${vs.length} · ${vs[i].total}★ (target ${E.alignTarget(state)}★)`, "ok");
+      act({ type: "arrange", slots: vs[i].slots }, t);
     }
 
     /* ---------- the 5v5 board ---------- */
@@ -1325,6 +1344,8 @@
           .map((e) => {
             if (e.kind === "swap")
               return `<div class="${e.team}">${esc(s.teamNames[e.team])} swapped ${roleTag(e.r1)} ↔ ${roleTag(e.r2)}</div>`;
+            if (e.kind === "align")
+              return `<div class="${e.team}">${esc(s.teamNames[e.team])} auto aligned to ${e.total}★</div>`;
             if (e.kind === "lock" || e.kind === "unlock")
               return `<div class="${e.team}">${esc(s.teamNames[e.team])} ${e.kind === "lock" ? "locked in ✓" : "cancelled their lock-in"}</div>`;
             if (e.kind === "bench")
@@ -1609,6 +1630,8 @@
             { type: "ready", value: b.dataset.v === "true" },
             b.dataset.team,
           );
+        case "align":
+          return align(b.dataset.team);
         case "force":
           return act({ type: "forceStart" }, "admin");
         case "pause":
