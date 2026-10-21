@@ -17,5 +17,6 @@
   {"id":"rex","name":"Rex","ratings":{"TOP":2,"JNG":2,"MID":2,"ADC":2,"SUP":3}},
   {"id":"xonela","name":"Xonela","ratings":{"TOP":1,"JNG":2,"MID":1,"ADC":1,"SUP":2}},
   {"id":"gabo","name":"Gabo","ratings":{"TOP":3.5,"JNG":2,"MID":2,"ADC":2,"SUP":3}},
-  {"id":"tolo","name":"Tolo","ratings":{"TOP":1,"JNG":1,"MID":1,"ADC":1,"SUP":1.5}}
+  {"id":"tolo","name":"Tolo","ratings":{"TOP":1,"JNG":1,"MID":1,"ADC":1,"SUP":1.5}},
+  {"id":"shara","name":"Shara","ratings":{"TOP":2,"JNG":3.5,"MID":2,"ADC":2.5,"SUP":4.5}}
 ]
