@@ -128,3 +128,24 @@ for (let trial = 0; trial < 300; trial++) {
   rosterDrafts++;
 }
 console.log('OK - ' + rosterDrafts + ' no-cap roster drafts completed');
+
+// First pick: heads = A, tails = B, or set by hand; only in the lobby, and the order/sides always follow it.
+{
+  const players = Array.from({ length: 10 }, (_, i) => ({ id: 'p' + i, name: 'P' + i, ratings: { TOP: 3, JNG: 3, MID: 3, ADC: 3, SUP: 3 } }));
+  for (const pickOrder of ['alternate', 'snake']) {
+    let s = E.createDraft({ players, captains: { A: { playerId: 'p0' }, B: { playerId: 'p1' } }, settings: { pickOrder } });
+    assert.strictEqual(s.order[0], s.firstPick);
+    assert.strictEqual(s.coin, s.firstPick === 'A' ? 'heads' : 'tails');
+    const go = (a) => { const r = E.apply(s, Object.assign({ team: 'admin' }, a)); assert(r.ok, r.error); s = r.state; };
+    go({ type: 'firstPick', flip: 0.2 });
+    assert.deepStrictEqual([s.coin, s.firstPick, s.order[0], s.sides.A], ['heads', 'A', 'A', 'blue']);
+    go({ type: 'firstPick', flip: 0.7 });
+    assert.deepStrictEqual([s.coin, s.firstPick, s.order[0], s.sides.B], ['tails', 'B', 'B', 'blue']);
+    go({ type: 'firstPick', value: 'A' });
+    assert.deepStrictEqual([s.coin, s.firstPick, s.order[0], s.sides.A], [null, 'A', 'A', 'blue']);
+    go({ type: 'forceStart' });
+    assert.strictEqual(E.currentTeam(s), 'A');
+    assert(!E.apply(s, { type: 'firstPick', team: 'admin', value: 'B' }).ok, 'first pick is fixed after the start');
+  }
+  console.log('OK - first pick coin toss and manual choice');
+}

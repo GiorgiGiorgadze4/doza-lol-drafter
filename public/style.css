@@ -157,8 +157,8 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .order-strip { display: flex; gap: 4px; flex-wrap: wrap; }
 .order-strip span { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; font-weight: 700; font-size: 12px; }
-.order-strip .A { background: var(--blue-bg); color: var(--blue); border: 1px solid #2fa5e855; }
-.order-strip .B { background: var(--red-bg); color: var(--red); border: 1px solid #e8405755; }
+.order-strip .A, .order-strip .blue { background: var(--blue-bg); color: var(--blue); border: 1px solid #2fa5e855; }
+.order-strip .B, .order-strip .red { background: var(--red-bg); color: var(--red); border: 1px solid #e8405755; }
 .order-strip .done { opacity: .35; }
 .order-strip .now { outline: 2px solid var(--gold); outline-offset: 1px; box-shadow: 0 0 12px var(--gold); }
 .alert { padding: 10px 12px; border-radius: 8px; border: 1px solid; font-size: 13px; }
@@ -322,7 +322,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 
 .log { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .log div { padding: 4px 8px; border-radius: 4px; background: #07111f; }
-.log .A { border-left: 3px solid var(--blue); } .log .B { border-left: 3px solid var(--red); }
+.log .A, .log .blue { border-left: 3px solid var(--blue); } .log .B, .log .red { border-left: 3px solid var(--red); }
 
 .lobby-cap { text-align: center; padding: 18px; border-radius: 10px; background: #07111f; border: 1px solid var(--line); }
 .lobby-cap.ready { border-color: var(--ok); box-shadow: 0 0 16px #3ccf8e33; }
@@ -458,3 +458,12 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .ln-row .slot { flex: 1; }
 .ln-slot { user-select: none; }
 .ln-slot .pn .badge { font-size: 10px; font-weight: 600; margin: 0 4px; vertical-align: middle; }
+
+/* heads or tails for the first pick (star draft lobby) */
+.coin-toss { display: flex; align-items: center; gap: 14px; margin: 4px 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: #07111f; }
+.toss { flex: none; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; font: 700 22px Cinzel, Georgia, serif; color: #5a3d0c;
+  background: radial-gradient(circle at 35% 30%, #fff3c4, var(--star) 45%, #a4761f); box-shadow: inset 0 0 0 3px #8a6418, 0 0 14px #f3c24f55; }
+.toss.manual { filter: grayscale(.6); }
+.toss.spin { animation: toss .9s cubic-bezier(.3, .6, .4, 1); }
+@keyframes toss { 0% { transform: translateY(0) rotateX(0); } 50% { transform: translateY(-26px) rotateX(900deg); } 100% { transform: translateY(0) rotateX(1800deg); } }
+.btn.small.on { border-color: var(--gold); color: var(--gold2); }

@@ -309,6 +309,7 @@
       teams: { A: { slots: {} }, B: { slots: {} } },
       phase: 'lobby',
       firstPick: opts.firstPick || (Math.random() < 0.5 ? 'A' : 'B'),
+      coin: null, // last heads-or-tails in the lobby: 'heads' (team A picks first) | 'tails' (team B) | null (set by hand)
       sides: null,
       order: [], pickIndex: 0,
       locked: { A: !captains.A.playerId, B: !captains.B.playerId },
@@ -319,6 +320,7 @@
       seq: 0,
     };
     for (const t of TEAMS) for (const r of ROLES) state.teams[t].slots[r] = null;
+    if (!opts.firstPick) state.coin = state.firstPick === 'A' ? 'heads' : 'tails';
     state.sides = { [state.firstPick]: 'blue', [other(state.firstPick)]: 'red' };
 
     // Captain-players start on their main role (highest rating; ties go to the earlier role), so there's no
@@ -347,10 +349,17 @@
       state.cap++; state.autoCapRaised++;
       if (state.cap > 25) throw new Error('No valid draft exists for these players.');
     }
-    const needA = 5 - (captains.A.playerId ? 1 : 0);
-    const needB = 5 - (captains.B.playerId ? 1 : 0);
-    state.order = buildOrder(state.firstPick, needA, needB, settings.pickOrder);
+    setFirstPick(state, state.firstPick);
     return state;
+  }
+
+  // First pick decides blue side and the pick order; it can only change in the lobby, before any pick.
+  function setFirstPick(state, team) {
+    state.firstPick = team;
+    state.sides = { [team]: 'blue', [other(team)]: 'red' };
+    const needA = 5 - (state.captains.A.playerId ? 1 : 0);
+    const needB = 5 - (state.captains.B.playerId ? 1 : 0);
+    state.order = buildOrder(team, needA, needB, state.settings.pickOrder);
   }
 
   /* ---------- legality ---------- */
@@ -597,6 +606,23 @@
           break;
         }
         return fail('Nothing to ready for');
+      }
+      // Lobby only. { flip: r } tosses the coin with r in [0, 1) (heads = team A first), { value: 'A'|'B' } sets it by hand.
+      case 'firstPick': {
+        if (state.phase !== 'lobby') return fail('First pick is fixed once the draft starts');
+        let team;
+        if (action.flip != null) {
+          state.coin = +action.flip < 0.5 ? 'heads' : 'tails';
+          team = state.coin === 'heads' ? 'A' : 'B';
+        } else {
+          if (!TEAMS.includes(action.value)) return fail('Unknown team');
+          team = action.value;
+          state.coin = null;
+        }
+        setFirstPick(state, team);
+        state.ready = { A: false, B: false };
+        logPush({ kind: 'firstPick', team, coin: state.coin });
+        break;
       }
       case 'forceStart': {
         if (t !== 'admin') return fail('Admin only');

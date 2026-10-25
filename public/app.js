@@ -806,8 +806,8 @@
           <div class="stat"><div class="v">${pool.length - n}</div><div class="k">Sit out</div></div>
           <div class="stat"><div class="v">${s.starLimit != null ? s.starLimit + "★" : "—"}</div><div class="k">Max per team${st.starLimit ? "" : " (auto)"}</div></div>
         </div>
-        <p class="small muted" style="margin-top:12px">Pick order (the first pick is a coin flip, and the team that picks first is blue side):</p>
-        <div class="order-strip">${s.order.map((t) => `<span class="${t}">${t}</span>`).join("")}</div>
+        <p class="small muted" style="margin-top:12px">Pick order (1 = the first pick team, 2 = the other). Heads or tails in the lobby decides who is first and gets blue side; you can also set it by hand there:</p>
+        <div class="order-strip">${s.order.map((t) => `<span class="${t}">${t === "A" ? 1 : 2}</span>`).join("")}</div>
         <div class="alert ok small" style="margin-top:12px">No star cap: team totals and the win estimate update live as players are placed.</div>`
         }
         <div class="row" style="margin-top:14px">
@@ -920,6 +920,7 @@
       sel: null,
       swapSel: null,
       drag: null,
+      flipping: false, // coin toss animation in the lobby
       lastSeq: null,
       canUndo: false,
     };
@@ -1276,11 +1277,49 @@
         ${playerListHtml()}`;
     }
 
+    // Heads or tails for the first pick (heads = team A, tails = team B); admins can toss again or set it by hand.
+    function coinHtml() {
+      const s = state;
+      const face = ui.flipping ? "" : s.coin === "tails" ? "T" : s.coin === "heads" ? "H" : "★";
+      const how = ui.flipping
+        ? "Flipping…"
+        : s.coin
+          ? `<b>${s.coin === "heads" ? "Heads" : "Tails"}</b>: <b>${esc(s.teamNames[s.firstPick])}</b> picks first (blue side)`
+          : `Set by hand: <b>${esc(s.teamNames[s.firstPick])}</b> picks first (blue side)`;
+      return `<div class="coin-toss">
+          <div class="toss ${ui.flipping ? "spin" : s.coin || "manual"}">${face}</div>
+          <div>
+            <div class="small muted">Heads: ${esc(s.teamNames.A)} · Tails: ${esc(s.teamNames.B)}</div>
+            <div>${how}</div>
+            ${
+              isAdmin()
+                ? `<div class="row" style="margin-top:8px">
+                <button class="btn gold small" data-act="flip" ${ui.flipping ? "disabled" : ""}><i class="coin"></i> Flip coin</button>
+                ${E.TEAMS.map((t) => `<button class="btn small${s.firstPick === t && !s.coin ? " on" : ""}" data-act="first" data-team="${t}" ${ui.flipping ? "disabled" : ""}>${esc(s.teamNames[t])} first</button>`).join("")}
+              </div>`
+                : ""
+            }
+          </div>
+        </div>`;
+    }
+
+    function flip() {
+      ui.flipping = true;
+      draw();
+      setTimeout(() => {
+        ui.flipping = false;
+        if (state.phase === "lobby")
+          act({ type: "firstPick", flip: Math.random() }, "admin");
+        else draw();
+      }, 900);
+    }
+
     function centerLobby() {
       const s = state;
       return `<h2>Lobby</h2>
-        <p class="muted">The first pick was decided by coin flip: <b>${esc(s.teamNames[s.firstPick])}</b>. Start when both captains are at the screen.</p>
-        <div class="grid2">${E.TEAMS.map(
+        <p class="muted">The first pick team is blue side and picks first. Start when both captains are at the screen.</p>
+        ${coinHtml()}
+        <div class="grid2">${[s.firstPick, E.other(s.firstPick)].map(
           (t) => `
           <div class="lobby-cap ${s.ready[t] ? "ready" : ""}${capArt(s, t)}">
             <div class="tn">${esc(s.teamNames[t])}</div>
@@ -1356,19 +1395,21 @@
           .reverse()
           .map((e) => {
             if (e.kind === "swap")
-              return `<div class="${e.team}">${esc(s.teamNames[e.team])} swapped ${roleTag(e.r1)} ↔ ${roleTag(e.r2)}</div>`;
+              return `<div class="${s.sides[e.team]}">${esc(s.teamNames[e.team])} swapped ${roleTag(e.r1)} ↔ ${roleTag(e.r2)}</div>`;
+            if (e.kind === "firstPick")
+              return `<div class="${s.sides[e.team]}">${e.coin ? "<i class=\"coin\"></i> " + (e.coin === "heads" ? "Heads" : "Tails") + ": " : "First pick set: "}<b>${esc(s.teamNames[e.team])}</b> picks first</div>`;
             if (e.kind === "align")
-              return `<div class="${e.team}">${esc(s.teamNames[e.team])} auto aligned to ${e.total}★</div>`;
+              return `<div class="${s.sides[e.team]}">${esc(s.teamNames[e.team])} auto aligned to ${e.total}★</div>`;
             if (e.kind === "lock" || e.kind === "unlock")
-              return `<div class="${e.team}">${esc(s.teamNames[e.team])} ${e.kind === "lock" ? "locked in ✓" : "cancelled their lock-in"}</div>`;
+              return `<div class="${s.sides[e.team]}">${esc(s.teamNames[e.team])} ${e.kind === "lock" ? "locked in ✓" : "cancelled their lock-in"}</div>`;
             if (e.kind === "bench")
-              return `<div class="${e.team}">${esc(s.teamNames[e.team])} swapped in ${nm(e.playerId)} for ${nm(e.out)} ${roleTag(e.role)}</div>`;
+              return `<div class="${s.sides[e.team]}">${esc(s.teamNames[e.team])} swapped in ${nm(e.playerId)} for ${nm(e.out)} ${roleTag(e.role)}</div>`;
             if (e.kind === "release")
-              return `<div class="${e.team}">${esc(s.teamNames[e.team])} sent ${nm(e.playerId)} back to the roster ${roleTag(e.role)}</div>`;
+              return `<div class="${s.sides[e.team]}">${esc(s.teamNames[e.team])} sent ${nm(e.playerId)} back to the roster ${roleTag(e.role)}</div>`;
             if (e.kind === "move")
-              return `<div class="${e.team}">${esc(s.teamNames[e.team])} moved ${nm(e.playerId)} ${roleTag(e.r1)} → ${roleTag(e.r2)}</div>`;
+              return `<div class="${s.sides[e.team]}">${esc(s.teamNames[e.team])} moved ${nm(e.playerId)} ${roleTag(e.r1)} → ${roleTag(e.r2)}</div>`;
             const p = E.playerById(s, e.playerId);
-            return `<div class="${e.team}">${e.kind === "captain" ? "♛" : "#" + e.n} <b>${esc(s.teamNames[e.team])}</b> → ${nm(e.playerId)} ${roleTag(e.role)} ${stars(p.ratings[e.role])}${e.auto ? ' <span class="badge">auto</span>' : ""}</div>`;
+            return `<div class="${s.sides[e.team]}">${e.kind === "captain" ? "♛" : "#" + e.n} <b>${esc(s.teamNames[e.team])}</b> → ${nm(e.playerId)} ${roleTag(e.role)} ${stars(p.ratings[e.role])}${e.auto ? ' <span class="badge">auto</span>' : ""}</div>`;
           })
           .join("") || '<span class="muted small">No picks yet.</span>';
 
@@ -1386,7 +1427,7 @@
           <div class="meter"><div class="a" style="width:${(p * 100).toFixed(1)}%"></div><div class="b"></div></div>
           <div class="meter-lbl"><span><b>${esc(s.teamNames[L])}</b> ${sl}★ · ${Math.round(p * 100)}%</span><span>${Math.round((1 - p) * 100)}% · ${sr}★ <b>${esc(s.teamNames[R])}</b></span></div>
           <p class="small muted" style="margin-top:12px">Pick order</p>
-          <div class="order-strip">${s.order.map((t, i) => `<span class="${t} ${i < s.pickIndex || s.phase === "swap" || s.phase === "done" ? "done" : ""} ${s.phase === "draft" && i === s.pickIndex ? "now" : ""}">${t}</span>`).join("")}</div>
+          <div class="order-strip">${s.order.map((t, i) => `<span class="${s.sides[t]} ${i < s.pickIndex || s.phase === "swap" || s.phase === "done" ? "done" : ""} ${s.phase === "draft" && i === s.pickIndex ? "now" : ""}">${t}</span>`).join("")}</div>
           <p class="small muted" style="margin-top:12px">${s.cap != null ? "Cap " + s.cap + "★" : "No cap"} · min role ${s.settings.minRoleRating}★ · ${s.settings.pickTimer ? s.settings.pickTimer + "s per pick" : "no timer"}</p>
         </div>
         <div class="panel"><h2>Pick log</h2><div class="log">${log}</div></div>
@@ -1645,6 +1686,10 @@
           );
         case "align":
           return align(b.dataset.team);
+        case "flip":
+          return ui.flipping || flip();
+        case "first":
+          return act({ type: "firstPick", value: b.dataset.team }, "admin");
         case "force":
           return act({ type: "forceStart" }, "admin");
         case "pause":
