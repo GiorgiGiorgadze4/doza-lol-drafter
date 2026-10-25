@@ -4,7 +4,7 @@
   {"id":"ilo","name":"ilo","ratings":{"TOP":2.5,"JNG":5,"MID":2.5,"ADC":3,"SUP":5}},
   {"id":"geno","name":"Geno","ratings":{"TOP":5,"JNG":3,"MID":3,"ADC":3,"SUP":4}},
   {"id":"mika","name":"Mika","ratings":{"TOP":5,"JNG":3,"MID":3.5,"ADC":3,"SUP":2.5}},
-  {"id":"mate","name":"Mate","ratings":{"TOP":5,"JNG":3,"MID":3,"ADC":2.5,"SUP":4},"avatar":"img/avatars/mate.jpg","background":"img/avatars/mate-bg.jpg"},
+  {"id":"mate","name":"Mate","ratings":{"TOP":5,"JNG":3.5,"MID":3.5,"ADC":3.5,"SUP":4},"avatar":"img/avatars/mate.jpg","background":"img/avatars/mate-bg.jpg"},
   {"id":"ivexa","name":"Ivexa","ratings":{"TOP":3,"JNG":3,"MID":2,"ADC":4,"SUP":4}},
   {"id":"pawo","name":"Pawo","ratings":{"TOP":4,"JNG":3,"MID":2,"ADC":2,"SUP":3.5}},
   {"id":"rati","name":"Rati","ratings":{"TOP":2,"JNG":4.5,"MID":3.5,"ADC":2,"SUP":2.5}},
@@ -18,6 +18,6 @@
   {"id":"xonela","name":"Xonela","ratings":{"TOP":1,"JNG":2,"MID":1,"ADC":1,"SUP":2}},
   {"id":"gabo","name":"Gabo","ratings":{"TOP":3.5,"JNG":2,"MID":2,"ADC":2,"SUP":3}},
   {"id":"tolo","name":"Tolo","ratings":{"TOP":1,"JNG":1,"MID":1,"ADC":1,"SUP":1.5}},
-  {"id":"shara","name":"Shara","ratings":{"TOP":2,"JNG":3.5,"MID":2,"ADC":2.5,"SUP":4.5}},
+  {"id":"shara","name":"Shara","ratings":{"TOP":2,"JNG":3.5,"MID":2.5,"ADC":2.5,"SUP":4.5}},
   {"id":"rezy","name":"Rezy","ratings":{"TOP":3,"JNG":3,"MID":3,"ADC":3,"SUP":3}}
 ]
