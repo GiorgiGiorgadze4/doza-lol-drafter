@@ -66,6 +66,23 @@
         '">★</i>';
     return s + "</span>";
   }
+  // round picture in front of a player's name (only players with an avatar in players.json)
+  const avatar = (p) =>
+    p && p.avatar
+      ? `<img class="av" src="${esc(p.avatar)}" alt="" loading="lazy">`
+      : "";
+  // A captain with a background picture takes over the page background (team A's wins if both have one).
+  function setBackdrop(s) {
+    const pic =
+      s &&
+      E.TEAMS.map((t) => {
+        const p = s.captains[t].playerId && E.playerById(s, s.captains[t].playerId);
+        return p && p.background;
+      }).find(Boolean);
+    document.body.classList.toggle("backdrop", !!pic);
+    if (pic) document.body.style.setProperty("--backdrop", `url("${pic}")`);
+    else document.body.style.removeProperty("--backdrop");
+  }
   // "/ 24★" for capped drafts, just "★" when there is no cap
   const capTxt = (s) => (s.cap != null ? " / " + s.cap + "★" : "★");
   // team total colored by how far it is over the star limit (yellow up to 3 over, red beyond)
@@ -233,6 +250,7 @@
       } catch (_) {}
       cleanup = null;
     }
+    setBackdrop(null);
     $app.onclick = $app.oninput = $app.onchange = null;
     document.onkeydown = null;
     document.title = "Doza Drafter";
@@ -414,7 +432,7 @@
           .map(
             (p) => `
         <tr data-pid="${p.id}">
-          <td><input class="name" value="${esc(p.name)}" maxlength="32" data-act="rename"></td>
+          <td>${avatar(p)}<input class="name" value="${esc(p.name)}" maxlength="32" data-act="rename"></td>
           ${ROLES.map((r) => `<td>${stars(p.ratings[r], { edit: true, attrs: ` data-role="${r}"` })}</td>`).join("")}
           <td>${roleTag(bestRole(p))}</td>
           <td class="muted">${sumRating(p)}</td>
@@ -682,7 +700,7 @@
             const t = capOf(p.id);
             return `<div class="pp ${chosen.has(p.id) ? "sel" : ""}" data-pick="${p.id}" style="${chosen.has(p.id) || chosen.size < DRAFT_SIZE ? "" : "opacity:.45"}">
           <div class="grow">
-            <div class="nm">${esc(p.name)}${t ? '<span class="cap">♛</span>' : ""}</div>
+            <div class="nm">${avatar(p)}${esc(p.name)}${t ? '<span class="cap">♛</span>' : ""}</div>
             <div class="mini">${ROLES.map((r) => `<span>${r} <b>${p.ratings[r]}</b></span>`).join("")}</div>
           </div>
           ${t ? `<span class="badge gold">Captain ${t}</span>` : (chosen.has(p.id) ? '<span class="badge gold">In</span> ' : "") + roleTag(bestRole(p))}
@@ -719,6 +737,11 @@
           }
         </div>`,
       ).join("");
+      setBackdrop(
+        st.captainsArePlayers || isAuc
+          ? { captains: setup.captains, players: pool }
+          : null,
+      );
     }
 
     function buildOpts() {
@@ -1141,7 +1164,7 @@
       }
       const isCap = s.captains[t].playerId === pid;
       return `<div class="${cls}" ${attrs}>
-          <div class="who"><div class="pn">${esc(p.name)}${isCap ? '<span class="cap">♛</span>' : ""}</div>${stars(p.ratings[r])}${hint}</div>
+          <div class="who"><div class="pn">${avatar(p)}${esc(p.name)}${isCap ? '<span class="cap">♛</span>' : ""}</div>${stars(p.ratings[r])}${hint}</div>
           <div class="sv">${p.ratings[r]}</div>
         </div>`;
     }
@@ -1229,7 +1252,7 @@
             : roleTag(bestRole(p));
           return `<div class="${cls}" data-pid="${p.id}"${drag}>
             <div class="grow">
-              <div class="nm">${esc(p.name)}${capT ? '<span class="cap">♛</span>' : ""}</div>
+              <div class="nm">${avatar(p)}${esc(p.name)}${capT ? '<span class="cap">♛</span>' : ""}</div>
               <div class="mini">${ROLES.map((r) => `<span>${r} <b>${p.ratings[r]}</b></span>`).join("")}</div>
             </div>
             ${tag}
@@ -1383,6 +1406,7 @@
 
     function draw() {
       const s = state;
+      setBackdrop(s);
       if (ui.sel && !E.unplaced(s).some((p) => p.id === ui.sel)) ui.sel = null;
       if (
         ui.swapSel &&
@@ -1878,7 +1902,7 @@
         .map((x) => {
           const p = AU.playerById(s, x.id);
           return `<div class="au-row">
-            <div class="grow"><div class="nm">${esc(p.name)}${x.captain ? '<span class="cap">♛</span>' : ""}</div>${ratingsMini(p)}</div>
+            <div class="grow"><div class="nm">${avatar(p)}${esc(p.name)}${x.captain ? '<span class="cap">♛</span>' : ""}</div>${ratingsMini(p)}</div>
             ${roleTag(bestRole(p))}
             <div class="price">${x.captain ? '<span class="muted small">captain</span>' : coin(x.price)}</div>
           </div>`;
@@ -1945,7 +1969,7 @@
         return `${wheelHtml()}
           <div class="au-below au-lot">
             <div class="small muted">Lot ${lot.n} · nominated by ${tname(lot.nominator)}</div>
-            <div class="au-player">${esc(p.name)}</div>
+            <div class="au-player">${avatar(p)}${esc(p.name)}</div>
             ${ratingsMini(p)}
             <div class="au-bid ${lot.high.team === "A" ? "blue" : "red"}">${coin(lot.high.amount)} <span class="small">${tname(lot.high.team)}</span></div>
             <div class="small">${tname(lot.turn)} to answer${left != null ? ` · <b id="au-timer">${left}s</b>` : ""}</div>
@@ -2021,7 +2045,7 @@
       const cls = `slot ln-slot ${side} filled${readOnly ? "" : " swappable"}${sel ? " swap-sel" : ""}${laneSel && !sel ? " drop-ok" : ""}`;
       return `<div class="ln-row ${side}">${roleTag(r)}
         <div class="${cls}" data-lteam="${t}" data-lrole="${r}"${readOnly ? "" : ' draggable="true"'}>
-          <div class="who"><div class="pn">${p ? esc(p.name) : "?"}${isCap ? '<span class="cap">♛</span>' : ""}${traded}</div>${p ? stars(p.ratings[r]) : ""}${off}${hint}</div>
+          <div class="who"><div class="pn">${p ? avatar(p) + esc(p.name) : "?"}${isCap ? '<span class="cap">♛</span>' : ""}${traded}</div>${p ? stars(p.ratings[r]) : ""}${off}${hint}</div>
           <div class="sv">${p ? p.ratings[r] : 0}</div>
         </div></div>`;
     }
@@ -2071,6 +2095,7 @@
 
     function draw() {
       const s = state;
+      setBackdrop(s);
       if (s.phase === "done" && s.lanes && showLanes && !spinning) {
         document.title = s.teamNames.A + " vs " + s.teamNames.B + " · Lanes";
         return drawLanes();

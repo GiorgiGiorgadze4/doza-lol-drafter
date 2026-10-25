@@ -53,7 +53,11 @@
       const v = Math.round(Number(p.ratings && p.ratings[r]) * 2) / 2; // half-star steps
       ratings[r] = clamp(Number.isFinite(v) ? v : 1, 1, 5);
     }
-    return { id: String(p.id), name: String(p.name || 'Player').slice(0, 32), ratings };
+    const o = { id: String(p.id), name: String(p.name || 'Player').slice(0, 32), ratings };
+    // optional picture: a small square icon; a captain's avatar also becomes the draft's background
+    if (typeof p.avatar === 'string' && p.avatar) o.avatar = p.avatar.slice(0, 200);
+    if (typeof p.background === 'string' && p.background) o.background = p.background.slice(0, 200);
+    return o;
   }
 
   function normalizeSettings(s) {
