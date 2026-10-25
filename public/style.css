@@ -30,10 +30,6 @@ body {
   font: 14px/1.45 Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   min-height: 100vh;
 }
-/* a captain's picture as the page background, darkened so panels stay readable */
-body.backdrop {
-  background: linear-gradient(rgba(1, 10, 19, .72), rgba(1, 10, 19, .88)) fixed, var(--backdrop) center top / cover no-repeat fixed, var(--bg);
-}
 /* small round avatar in front of a player's name */
 img.av { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 6px; border: 1px solid var(--gold); flex: none; }
 a { color: var(--gold); text-decoration: none; }
@@ -216,6 +212,22 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .budget .lbl { display: flex; justify-content: space-between; font-size: 12px; margin-top: 4px; color: var(--muted); }
 .team-banner.red .budget .lbl { flex-direction: row-reverse; }
 .team-banner .align-btn { margin-top: 8px; }
+
+/* captain art: a captain's picture on their team's banner / card, fading into the card on the text side */
+.has-art { position: relative; overflow: hidden; isolation: isolate; }
+.has-art::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: var(--art) center 12% / cover no-repeat;
+  opacity: .5;
+  -webkit-mask-image: linear-gradient(270deg, #000 0%, #000 25%, transparent 75%);
+  mask-image: linear-gradient(270deg, #000 0%, #000 25%, transparent 75%);
+}
+.team-banner.has-art::before { left: 55%; opacity: .9; }
+.team-banner.red.has-art::before { left: 0; right: 55%; -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 25%, transparent 75%); mask-image: linear-gradient(90deg, #000 0%, #000 25%, transparent 75%); }
+.au-team.red.has-art::before { -webkit-mask-image: linear-gradient(90deg, #000 0%, transparent 70%); mask-image: linear-gradient(90deg, #000 0%, transparent 70%); }
+.lobby-cap.has-art { min-height: 200px; display: flex; flex-direction: column; justify-content: flex-end; }
+.lobby-cap.has-art::before { opacity: .75; -webkit-mask-image: linear-gradient(180deg, #000 30%, transparent 100%); mask-image: linear-gradient(180deg, #000 30%, transparent 100%); }
+.has-art .tn, .has-art .lbl, .has-art .sub { text-shadow: 0 1px 4px #000, 0 0 8px #000; }
 .budget .lbl b { color: var(--gold2); font-size: 14px; }
 
 .clock { min-width: 220px; text-align: center; padding: 10px 18px; border-radius: var(--radius); background: linear-gradient(#0f1b2d, #07111f); border: 1px solid var(--gold-dim); display: flex; flex-direction: column; align-items: center; justify-content: center; }

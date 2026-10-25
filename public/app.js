@@ -71,17 +71,13 @@
     p && p.avatar
       ? `<img class="av" src="${esc(p.avatar)}" alt="" loading="lazy">`
       : "";
-  // A captain with a background picture takes over the page background (team A's wins if both have one).
-  function setBackdrop(s) {
-    const pic =
-      s &&
-      E.TEAMS.map((t) => {
-        const p = s.captains[t].playerId && E.playerById(s, s.captains[t].playerId);
-        return p && p.background;
-      }).find(Boolean);
-    document.body.classList.toggle("backdrop", !!pic);
-    if (pic) document.body.style.setProperty("--backdrop", `url("${pic}")`);
-    else document.body.style.removeProperty("--backdrop");
+  // A captain's full picture (players.json "background") shown as art on their team's card, or "" when there is none.
+  function capArt(s, t) {
+    const id = s.captains[t].playerId;
+    const p = id && E.playerById(s, id);
+    return p && p.background
+      ? ` has-art" style="--art:url('${esc(p.background)}')`
+      : "";
   }
   // "/ 24★" for capped drafts, just "★" when there is no cap
   const capTxt = (s) => (s.cap != null ? " / " + s.cap + "★" : "★");
@@ -250,7 +246,6 @@
       } catch (_) {}
       cleanup = null;
     }
-    setBackdrop(null);
     $app.onclick = $app.oninput = $app.onchange = null;
     document.onkeydown = null;
     document.title = "Doza Drafter";
@@ -737,11 +732,6 @@
           }
         </div>`,
       ).join("");
-      setBackdrop(
-        st.captainsArePlayers || isAuc
-          ? { captains: setup.captains, players: pool }
-          : null,
-      );
     }
 
     function buildOpts() {
@@ -1008,7 +998,7 @@
               : " · not locked in"
             : "";
       return `
-        <div class="team-banner ${side} ${isTurn(t) && s.phase !== "done" ? "turn" : ""}">
+        <div class="team-banner ${side} ${isTurn(t) && s.phase !== "done" ? "turn" : ""}${capArt(s, t)}">
           <div class="tn">${esc(s.teamNames[t])}</div>
           <div class="sub">Captain ${esc(capName)} · <span class="badge ${side}">${side} side</span>${s.firstPick === t ? " · first pick" : ""}${status}</div>
           <div class="budget">
@@ -1292,7 +1282,7 @@
         <p class="muted">The first pick was decided by coin flip: <b>${esc(s.teamNames[s.firstPick])}</b>. Start when both captains are at the screen.</p>
         <div class="grid2">${E.TEAMS.map(
           (t) => `
-          <div class="lobby-cap ${s.ready[t] ? "ready" : ""}">
+          <div class="lobby-cap ${s.ready[t] ? "ready" : ""}${capArt(s, t)}">
             <div class="tn">${esc(s.teamNames[t])}</div>
             <div class="small muted">Captain ${esc(s.captains[t].name)}</div>
           </div>`,
@@ -1314,7 +1304,7 @@
         ]
           .map(
             (t) => `
-          <div class="lobby-cap ${s.ready[t] ? "ready" : ""}">
+          <div class="lobby-cap ${s.ready[t] ? "ready" : ""}${capArt(s, t)}">
             <div class="tn">${esc(s.teamNames[t])}</div>
             <div class="small muted">${totalHtml(s, t)}${capTxt(s)}${s.starLimit != null ? " · max " + s.starLimit + "★" : ""}</div>
             <div style="margin-top:12px">${
@@ -1339,7 +1329,7 @@
           <div class="final">${E.TEAMS.map(
             (
               t,
-            ) => `<div class="lobby-cap"><div class="tn">${esc(s.teamNames[t])}</div>
+            ) => `<div class="lobby-cap${capArt(s, t)}"><div class="tn">${esc(s.teamNames[t])}</div>
             <div class="vs">${totalHtml(s, t)}★</div><span class="badge ${s.sides[t]}">${s.sides[t]} side</span>
             <div class="small muted" style="margin-top:6px">Estimated win: ${Math.round(E.winChance(E.teamStars(s, t), E.teamStars(s, E.other(t))) * 100)}%</div></div>`,
           ).join("")}</div>
@@ -1406,7 +1396,6 @@
 
     function draw() {
       const s = state;
-      setBackdrop(s);
       if (ui.sel && !E.unplaced(s).some((p) => p.id === ui.sel)) ui.sel = null;
       if (
         ui.swapSel &&
@@ -1932,7 +1921,7 @@
         } else if (leading)
           controls = `<div class="bid-box lead">Winning at ${coin(lot.high.amount)}. Waiting for ${tname(E.other(t))}…</div>`;
       }
-      return `<div class="panel au-team ${t === "A" ? "blue" : "red"} ${myTurn ? "turn" : ""}">
+      return `<div class="panel au-team ${t === "A" ? "blue" : "red"} ${myTurn ? "turn" : ""}${capArt(s, t)}">
           <div class="au-head">
             <div class="tn">${tname(t)}</div>
             <div class="tokens">${coin(team.tokens)}<span class="small muted"> left</span></div>
@@ -1947,7 +1936,7 @@
       const s = state;
       if (s.phase === "done" && !spinning) {
         return `<h2 style="text-align:center">Auction complete</h2>
-          <div class="final">${AU.TEAMS.map((t) => `<div class="lobby-cap"><div class="tn">${tname(t)}</div>
+          <div class="final">${AU.TEAMS.map((t) => `<div class="lobby-cap${capArt(s, t)}"><div class="tn">${tname(t)}</div>
             <div class="vs">${coin(AU.spent(s, t))}</div><div class="small muted">spent · ${s.teams[t].tokens} left</div>
             <div class="small muted" style="margin-top:6px">Best-role stars: ${AU.teamPower(s, t)}★</div></div>`).join("")}</div>
           <div class="row" style="justify-content:center;margin-top:14px">
@@ -2055,7 +2044,7 @@
       const a = laneStarsOf("A"),
         b = laneStarsOf("B"),
         p = E.winChance(a, b);
-      const team = (t) => `<div class="panel au-team ${t === "A" ? "blue" : "red"}">
+      const team = (t) => `<div class="panel au-team ${t === "A" ? "blue" : "red"}${capArt(s, t)}">
           <div class="au-head">
             <div class="tn">${tname(t)}</div>
             <div class="tokens">${t === "A" ? a : b}★</div>
@@ -2095,7 +2084,6 @@
 
     function draw() {
       const s = state;
-      setBackdrop(s);
       if (s.phase === "done" && s.lanes && showLanes && !spinning) {
         document.title = s.teamNames.A + " vs " + s.teamNames.B + " · Lanes";
         return drawLanes();
